@@ -1,0 +1,197 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model Role {
+  id          Int          @id @default(autoincrement())
+  name        String       @unique
+  description String?
+
+  users       User[]
+  permissions Permission[]
+
+  createdAt   DateTime     @default(now())
+  updatedAt   DateTime     @updatedAt
+}
+
+model Permission {
+  id          Int      @id @default(autoincrement())
+  name        String   @unique
+  description String?
+
+  roles       Role[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model User {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String   @unique
+  password  String
+
+  roleId    Int
+  role      Role     @relation(fields: [roleId], references: [id])
+
+  sales     Sale[]
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Category {
+  id          Int       @id @default(autoincrement())
+  name        String    @unique
+  description String?
+
+  products    Product[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+model Product {
+  id          Int       @id @default(autoincrement())
+  name        String
+  sku         String    @unique
+  description String?
+  price       Decimal   @db.Decimal(10, 2)
+  costPrice   Decimal   @db.Decimal(10, 2)
+  stock       Int       @default(0)
+  isActive    Boolean   @default(true)
+
+  categoryId  Int
+  category    Category  @relation(fields: [categoryId], references: [id])
+
+  inventoryTransactions InventoryTransaction[]
+  saleItems             SaleItem[]
+
+  createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+}
+
+enum InventoryTransactionType {
+  PURCHASE
+  SALE
+  RETURN
+  DAMAGE
+  ADJUSTMENT
+}
+
+model InventoryTransaction {
+  id          Int      @id @default(autoincrement())
+
+  productId   Int
+  product     Product  @relation(fields: [productId], references: [id])
+
+  type        InventoryTransactionType
+  quantity    Int
+  note        String?
+
+  createdAt   DateTime @default(now())
+}
+
+model Department {
+  id          Int        @id @default(autoincrement())
+  name        String     @unique
+  description String?
+
+  employees   Employee[]
+
+  createdAt   DateTime   @default(now())
+  updatedAt   DateTime   @updatedAt
+}
+
+model Employee {
+  id           Int        @id @default(autoincrement())
+  name         String
+  email        String     @unique
+  phone        String?
+  salary       Decimal?   @db.Decimal(10, 2)
+  hireDate     DateTime
+  isActive     Boolean    @default(true)
+
+  departmentId Int
+  department   Department @relation(fields: [departmentId], references: [id])
+
+  createdAt    DateTime   @default(now())
+  updatedAt    DateTime   @updatedAt
+}
+
+model Customer {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String?  @unique
+  phone     String?
+  address   String?
+
+  sales     Sale[]
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+}
+
+model Sale {
+  id          Int      @id @default(autoincrement())
+
+  customerId  Int
+  customer    Customer @relation(fields: [customerId], references: [id])
+
+  userId      Int
+  user        User     @relation(fields: [userId], references: [id])
+
+  totalAmount Decimal  @db.Decimal(10, 2)
+  status      String   @default("COMPLETED")
+
+  items       SaleItem[]
+  payments    Payment[]
+
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+model SaleItem {
+  id        Int     @id @default(autoincrement())
+
+  saleId    Int
+  sale      Sale    @relation(fields: [saleId], references: [id])
+
+  productId Int
+  product   Product @relation(fields: [productId], references: [id])
+
+  quantity  Int
+  unitPrice Decimal @db.Decimal(10, 2)
+  subtotal  Decimal @db.Decimal(10, 2)
+}
+
+model Payment {
+  id        Int      @id @default(autoincrement())
+
+  saleId    Int
+  sale      Sale     @relation(fields: [saleId], references: [id])
+
+  amount    Decimal  @db.Decimal(10, 2)
+  method    String
+  status    String   @default("PAID")
+
+  createdAt DateTime @default(now())
+}
+
+model Notification {
+  id        Int      @id @default(autoincrement())
+
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id])
+
+  title     String
+  message   String
+  isRead    Boolean  @default(false)
+
+  createdAt DateTime @default(now())
+}
