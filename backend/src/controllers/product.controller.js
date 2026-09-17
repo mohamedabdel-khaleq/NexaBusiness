@@ -185,25 +185,21 @@ const getProductById = async (req, res) => {
 
 
 //UPDATE PRODUCT
-
 const updateProduct = async (req, res) => {
   const { id } = req.params;
 
-  const {
-    name,
-    sku,
-    description,
-    price,
-    costPrice,
-    stock,
-    categoryId,
-    isActive,
-  } = req.body;
-
   try {
+    const productId = parseInt(id);
+
+    if (!Number.isInteger(productId) || productId <= 0) {
+      return res.status(400).json({
+        message: "Product ID must be a positive integer",
+      });
+    }
+
     const existingProduct = await prisma.product.findUnique({
       where: {
-        id: parseInt(id),
+        id: productId,
       },
     });
 
@@ -213,53 +209,103 @@ const updateProduct = async (req, res) => {
       });
     }
 
-    if (!name || !sku || price === undefined || costPrice === undefined || !categoryId) {
-      return res.status(400).json({
-        message: "Name, SKU, price, costPrice and categoryId are required",
-      });
-    }
+    const {
+      name,
+      sku,
+      description,
+      price,
+      costPrice,
+      stock,
+      categoryId,
+      isActive,
+    } = req.body;
 
-    const duplicateProduct = await prisma.product.findFirst({
-      where: {
-        sku,
-        NOT: {
-          id: parseInt(id),
+    // Check SKU only if the user wants to change it
+    if (sku !== undefined) {
+      const duplicateProduct = await prisma.product.findFirst({
+        where: {
+          sku,
+          NOT: {
+            id: productId,
+          },
         },
-      },
-    });
+      });
 
-    if (duplicateProduct) {
-      return res.status(409).json({
-        message: "SKU already exists",
+      if (duplicateProduct) {
+        return res.status(409).json({
+          message: "SKU already exists",
+        });
+      }
+    }
+
+    // Check category only if the user wants to change it
+    if (categoryId !== undefined) {
+      const category = await prisma.category.findUnique({
+        where: {
+          id: categoryId,
+        },
+      });
+
+      if (!category) {
+        return res.status(404).json({
+          message: "Category not found",
+        });
+      }
+    }
+
+    // Compare the new values with the existing database values
+    const currentPrice = Number(existingProduct.price);
+    const currentCostPrice = Number(existingProduct.costPrice);
+
+    const newPrice = price ?? currentPrice;
+    const newCostPrice = costPrice ?? currentCostPrice;
+
+    if (newCostPrice > newPrice) {
+      return res.status(400).json({
+        message: "Cost price cannot be greater than selling price",
       });
     }
 
-    const category = await prisma.category.findUnique({
-      where: {
-        id: parseInt(categoryId),
-      },
-    });
+    // Build only the fields that were actually sent
+    const updateData = {};
 
-    if (!category) {
-      return res.status(404).json({
-        message: "Category not found",
-      });
+    if (name !== undefined) {
+      updateData.name = name;
+    }
+
+    if (sku !== undefined) {
+      updateData.sku = sku;
+    }
+
+    if (description !== undefined) {
+      updateData.description = description;
+    }
+
+    if (price !== undefined) {
+      updateData.price = price;
+    }
+
+    if (costPrice !== undefined) {
+      updateData.costPrice = costPrice;
+    }
+
+    if (stock !== undefined) {
+      updateData.stock = stock;
+    }
+
+    if (categoryId !== undefined) {
+      updateData.categoryId = categoryId;
+    }
+
+    if (isActive !== undefined) {
+      updateData.isActive = isActive;
     }
 
     const product = await prisma.product.update({
       where: {
-        id: parseInt(id),
+        id: productId,
       },
-      data: {
-        name,
-        sku,
-        description,
-        price,
-        costPrice,
-        stock: stock || 0,
-        categoryId: parseInt(categoryId),
-        isActive: isActive ?? true,
-      },
+      data: updateData,
     });
 
     return res.status(200).json({

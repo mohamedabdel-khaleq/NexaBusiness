@@ -1,5 +1,12 @@
 const express = require("express");
 
+const validate = require("../middleware/validation.middleware");
+
+const {
+  createProductSchema,
+  updateProductSchema,
+} = require("../validators/product.validator");
+
 const {
   createProduct,
   getAllProducts,
@@ -13,13 +20,16 @@ const requirePermission = require("../middleware/permission.middleware");
 
 const router = express.Router();
 
+// CREATE PRODUCT
 router.post(
   "/",
   authMiddleware,
   requirePermission("products.create"),
+  validate(createProductSchema),
   createProduct
 );
 
+// GET ALL PRODUCTS
 router.get(
   "/",
   authMiddleware,
@@ -27,6 +37,7 @@ router.get(
   getAllProducts
 );
 
+// GET PRODUCT BY ID
 router.get(
   "/:id",
   authMiddleware,
@@ -34,13 +45,16 @@ router.get(
   getProductById
 );
 
+// UPDATE PRODUCT
 router.put(
   "/:id",
   authMiddleware,
   requirePermission("products.update"),
+  validate(updateProductSchema),
   updateProduct
 );
 
+// DELETE PRODUCT
 router.delete(
   "/:id",
   authMiddleware,
