@@ -12,6 +12,8 @@ const paymentRoutes = require("./routes/payment.routes");
 const departmentRoutes = require("./routes/department.routes");
 const employeeRoutes = require("./routes/employee.routes");
 const notificationRoutes = require("./routes/notification.routes");
+const dashboardRoutes = require("./routes/dashboard.routes");
+const reportRoutes = require("./routes/report.routes");
 
 const app = express();
 
@@ -28,5 +30,7 @@ app.use("/api/payments", paymentRoutes);
 app.use("/api/departments", departmentRoutes);
 app.use("/api/employees", employeeRoutes);
 app.use("/api/notifications", notificationRoutes);
+app.use("/api/dashboard", dashboardRoutes);
+app.use("/api/reports", reportRoutes);
 
 module.exports = app;

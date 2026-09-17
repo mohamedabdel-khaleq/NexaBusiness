@@ -35,18 +35,77 @@ const createCustomer = async (req, res) => {
 };
 
 //GET ALL CUSTOMERS
+//GET ALL CUSTOMERS
 
 const getAllCustomers = async (req, res) => {
   try {
-    const customers = await prisma.customer.findMany({
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    const {
+      search,
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const currentPage = Math.max(parseInt(page) || 1, 1);
+    const itemsPerPage = Math.min(
+      Math.max(parseInt(limit) || 10, 1),
+      100
+    );
+
+    const skip = (currentPage - 1) * itemsPerPage;
+
+    const where = {};
+
+    if (search) {
+      where.OR = [
+        {
+          name: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          email: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          phone: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+      ];
+    }
+
+    const [customers, totalCustomers] = await Promise.all([
+      prisma.customer.findMany({
+        where,
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip,
+        take: itemsPerPage,
+      }),
+
+      prisma.customer.count({
+        where,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(
+      totalCustomers / itemsPerPage
+    );
 
     return res.status(200).json({
       message: "Customers retrieved successfully",
       customers,
+      pagination: {
+        page: currentPage,
+        limit: itemsPerPage,
+        totalCustomers,
+        totalPages,
+      },
     });
   } catch (error) {
     console.error("Get customers error:", error);

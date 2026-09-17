@@ -70,21 +70,74 @@ const createProduct = async (req, res) => {
 
 
 //GET ALL PRODUCTS 
-
 const getAllProducts = async (req, res) => {
   try {
-    const products = await prisma.product.findMany({
-      include: {
-        category: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    const {
+      search,
+      categoryId,
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const currentPage = parseInt(page);
+    const itemsPerPage = parseInt(limit);
+
+    const skip = (currentPage - 1) * itemsPerPage;
+
+    const where = {};
+
+    if (search) {
+      where.OR = [
+        {
+          name: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          sku: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+      ];
+    }
+
+    if (categoryId) {
+      where.categoryId = parseInt(categoryId);
+    }
+
+    const [products, totalProducts] = await Promise.all([
+      prisma.product.findMany({
+        where,
+        include: {
+          category: true,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip,
+        take: itemsPerPage,
+      }),
+
+      prisma.product.count({
+        where,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(
+      totalProducts / itemsPerPage
+    );
 
     return res.status(200).json({
       message: "Products retrieved successfully",
       products,
+      pagination: {
+        page: currentPage,
+        limit: itemsPerPage,
+        totalProducts,
+        totalPages,
+      },
     });
   } catch (error) {
     console.error("Get all products error:", error);

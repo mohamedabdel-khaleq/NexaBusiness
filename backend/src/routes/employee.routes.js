@@ -9,13 +9,43 @@ const {
 } = require("../controllers/employee.controller");
 
 const authMiddleware = require("../middleware/auth.middleware");
+const requirePermission = require("../middleware/permission.middleware");
 
 const router = express.Router();
 
-router.post("/", authMiddleware, createEmployee);
-router.get("/", authMiddleware, getAllEmployees);
-router.get("/:id", authMiddleware, getEmployeeById);
-router.put("/:id", authMiddleware, updateEmployee);
-router.delete("/:id", authMiddleware, deleteEmployee);
+router.post(
+  "/",
+  authMiddleware,
+  requirePermission("employees.manage"),
+  createEmployee
+);
+
+router.get(
+  "/",
+  authMiddleware,
+  requirePermission("employees.read"),
+  getAllEmployees
+);
+
+router.get(
+  "/:id",
+  authMiddleware,
+  requirePermission("employees.read"),
+  getEmployeeById
+);
+
+router.put(
+  "/:id",
+  authMiddleware,
+  requirePermission("employees.manage"),
+  updateEmployee
+);
+
+router.delete(
+  "/:id",
+  authMiddleware,
+  requirePermission("employees.manage"),
+  deleteEmployee
+);
 
 module.exports = router;

@@ -9,19 +9,48 @@ const {
 } = require("../controllers/category.controller");
 
 const authMiddleware = require("../middleware/auth.middleware");
+const requirePermission = require("../middleware/permission.middleware");
+
 const router = express.Router();
 
+// CREATE CATEGORY
+router.post(
+  "/",
+  authMiddleware,
+  requirePermission("categories.create"),
+  createCategory
+);
 
-//CREATE CATEGORY
-router.post("/", authMiddleware, createCategory);
-//GET ALL CATEGORIES 
-router.get("/", authMiddleware, getAllCategories);
-//GET CATEGORY BY ID 
-router.get("/:id", authMiddleware, getCategoryById);
-//UPDATE CATEGORY
-router.put("/:id", authMiddleware, updateCategory);
-//DELETE CATEGORY
-router.delete("/:id", authMiddleware, deleteCategory);
+// GET ALL CATEGORIES
+router.get(
+  "/",
+  authMiddleware,
+  requirePermission("categories.read"),
+  getAllCategories
+);
 
+// GET CATEGORY BY ID
+router.get(
+  "/:id",
+  authMiddleware,
+  requirePermission("categories.read"),
+  getCategoryById
+);
+
+// UPDATE CATEGORY
+router.put(
+  "/:id",
+  authMiddleware,
+  requirePermission("categories.update"),
+  updateCategory
+);
+
+// DELETE CATEGORY
+router.delete(
+  "/:id",
+  authMiddleware,
+  requirePermission("categories.delete"),
+  deleteCategory
+);
 
 module.exports = router;

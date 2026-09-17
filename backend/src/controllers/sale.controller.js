@@ -159,31 +159,121 @@ const createSale = async (req, res) => {
 
 const getAllSales = async (req, res) => {
   try {
-    const sales = await prisma.sale.findMany({
-      include: {
-        customer: true,
-        user: {
-          select: {
-            id: true,
-            name: true,
-            email: true,
+    const {
+      search,
+      customerId,
+      from,
+      to,
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const currentPage = Math.max(parseInt(page) || 1, 1);
+
+    const itemsPerPage = Math.min(
+      Math.max(parseInt(limit) || 10, 1),
+      100
+    );
+
+    const skip = (currentPage - 1) * itemsPerPage;
+
+    const where = {};
+
+    // SEARCH BY CUSTOMER
+
+    if (search) {
+      where.customer = {
+        OR: [
+          {
+            name: {
+              contains: search,
+              mode: "insensitive",
+            },
           },
-        },
-        items: {
-          include: {
-            product: true,
+          {
+            email: {
+              contains: search,
+              mode: "insensitive",
+            },
           },
+          {
+            phone: {
+              contains: search,
+              mode: "insensitive",
+            },
+          },
+        ],
+      };
+    }
+
+    // FILTER BY CUSTOMER
+
+    if (customerId) {
+      where.customerId = parseInt(customerId);
+    }
+
+    // FILTER BY DATE
+
+    if (from || to) {
+      where.createdAt = {};
+
+      if (from) {
+        where.createdAt.gte = new Date(
+          `${from}T00:00:00.000Z`
+        );
+      }
+
+      if (to) {
+        where.createdAt.lte = new Date(
+          `${to}T23:59:59.999Z`
+        );
+      }
+    }
+
+    const [sales, totalSales] = await Promise.all([
+      prisma.sale.findMany({
+        where,
+        include: {
+          customer: true,
+          user: {
+            select: {
+              id: true,
+              name: true,
+              email: true,
+            },
+          },
+          items: {
+            include: {
+              product: true,
+            },
+          },
+          payments: true,
         },
-        payments: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip,
+        take: itemsPerPage,
+      }),
+
+      prisma.sale.count({
+        where,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(
+      totalSales / itemsPerPage
+    );
 
     return res.status(200).json({
       message: "Sales retrieved successfully",
       sales,
+      pagination: {
+        page: currentPage,
+        limit: itemsPerPage,
+        totalSales,
+        totalPages,
+      },
     });
   } catch (error) {
     console.error("Get sales error:", error);

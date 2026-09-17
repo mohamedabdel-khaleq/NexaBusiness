@@ -7,11 +7,29 @@ const {
 } = require("../controllers/customer.controller");
 
 const authMiddleware = require("../middleware/auth.middleware");
+const requirePermission = require("../middleware/permission.middleware");
 
 const router = express.Router();
 
-router.post("/", authMiddleware, createCustomer);
-router.get("/", authMiddleware, getAllCustomers);
-router.get("/:id", authMiddleware, getCustomerById);
+router.post(
+  "/",
+  authMiddleware,
+  requirePermission("customers.manage"),
+  createCustomer
+);
+
+router.get(
+  "/",
+  authMiddleware,
+  requirePermission("customers.read"),
+  getAllCustomers
+);
+
+router.get(
+  "/:id",
+  authMiddleware,
+  requirePermission("customers.read"),
+  getCustomerById
+);
 
 module.exports = router;

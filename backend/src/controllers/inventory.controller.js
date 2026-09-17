@@ -1,26 +1,19 @@
 const prisma = require("../config/prisma");
 
-//CREATE INVENTORY TRANSACTION
+// CREATE INVENTORY TRANSACTION
 
 const createInventoryTransaction = async (req, res) => {
   const { productId, type, quantity, note } = req.body;
 
   try {
-    //Validate required fields
+    // Validate required fields
     if (!productId || !type || quantity === undefined) {
       return res.status(400).json({
         message: "ProductId, type and quantity are required",
       });
     }
 
-    //Validate quantity
-    if (quantity <= 0) {
-      return res.status(400).json({
-        message: "Quantity must be greater than 0",
-      });
-    }
-
-    //Validate transaction type
+    // Validate transaction type
     const allowedTypes = [
       "PURCHASE",
       "SALE",
@@ -35,10 +28,45 @@ const createInventoryTransaction = async (req, res) => {
       });
     }
 
-    //Find product
+    // Validate quantity
+    const transactionQuantity = Number(quantity);
+
+    if (
+      !Number.isFinite(transactionQuantity) ||
+      !Number.isInteger(transactionQuantity)
+    ) {
+      return res.status(400).json({
+        message: "Quantity must be an integer",
+      });
+    }
+
+    // Normal transactions must have positive quantity
+    if (type !== "ADJUSTMENT" && transactionQuantity <= 0) {
+      return res.status(400).json({
+        message: "Quantity must be a positive integer",
+      });
+    }
+
+    // Adjustment cannot be zero
+    if (type === "ADJUSTMENT" && transactionQuantity === 0) {
+      return res.status(400).json({
+        message: "Adjustment quantity cannot be zero",
+      });
+    }
+
+    // Validate product ID
+    const parsedProductId = parseInt(productId);
+
+    if (!Number.isInteger(parsedProductId) || parsedProductId <= 0) {
+      return res.status(400).json({
+        message: "ProductId must be a positive integer",
+      });
+    }
+
+    // Find product
     const product = await prisma.product.findUnique({
       where: {
-        id: parseInt(productId),
+        id: parsedProductId,
       },
     });
 
@@ -48,46 +76,47 @@ const createInventoryTransaction = async (req, res) => {
       });
     }
 
-    //Calculate stock change
+    // Calculate stock change
     let stockChange = 0;
 
     if (type === "PURCHASE" || type === "RETURN") {
-      stockChange = quantity;
+      stockChange = transactionQuantity;
     }
 
     if (type === "SALE" || type === "DAMAGE") {
-      stockChange = -quantity;
+      stockChange = -transactionQuantity;
     }
 
     if (type === "ADJUSTMENT") {
-      stockChange = quantity;
+      stockChange = transactionQuantity;
     }
 
-    //Prevent negative stock
+    // Calculate new stock
     const newStock = product.stock + stockChange;
 
+    // Prevent negative stock
     if (newStock < 0) {
       return res.status(400).json({
         message: "Insufficient stock",
         currentStock: product.stock,
-        requestedQuantity: quantity,
+        requestedQuantity: transactionQuantity,
       });
     }
 
-    //Create transaction and update stock together
+    // Create transaction and update stock together
     const result = await prisma.$transaction(async (tx) => {
       const transaction = await tx.inventoryTransaction.create({
         data: {
-          productId: parseInt(productId),
+          productId: parsedProductId,
           type,
-          quantity: parseInt(quantity),
+          quantity: transactionQuantity,
           note,
         },
       });
 
       const updatedProduct = await tx.product.update({
         where: {
-          id: parseInt(productId),
+          id: parsedProductId,
         },
         data: {
           stock: newStock,
@@ -100,7 +129,7 @@ const createInventoryTransaction = async (req, res) => {
       };
     });
 
-    //Send response
+    // Send response
     return res.status(201).json({
       message: "Inventory transaction created successfully",
       transaction: result.transaction,
@@ -115,7 +144,7 @@ const createInventoryTransaction = async (req, res) => {
   }
 };
 
-//GET ALL INVENTORY TRANSACTIONS
+// GET ALL INVENTORY TRANSACTIONS
 
 const getAllInventoryTransactions = async (req, res) => {
   try {
@@ -141,7 +170,7 @@ const getAllInventoryTransactions = async (req, res) => {
   }
 };
 
-//GET INVENTORY TRANSACTION BY ID
+// GET INVENTORY TRANSACTION BY ID
 
 const getInventoryTransactionById = async (req, res) => {
   const { id } = req.params;

@@ -72,18 +72,82 @@ const createEmployee = async (req, res) => {
 
 const getAllEmployees = async (req, res) => {
   try {
-    const employees = await prisma.employee.findMany({
-      include: {
-        department: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    const {
+      search,
+      departmentId,
+      page = 1,
+      limit = 10,
+    } = req.query;
+
+    const currentPage = Math.max(parseInt(page) || 1, 1);
+
+    const itemsPerPage = Math.min(
+      Math.max(parseInt(limit) || 10, 1),
+      100
+    );
+
+    const skip = (currentPage - 1) * itemsPerPage;
+
+    const where = {};
+
+    if (search) {
+      where.OR = [
+        {
+          name: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          email: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+        {
+          phone: {
+            contains: search,
+            mode: "insensitive",
+          },
+        },
+      ];
+    }
+
+    if (departmentId) {
+      where.departmentId = parseInt(departmentId);
+    }
+
+    const [employees, totalEmployees] = await Promise.all([
+      prisma.employee.findMany({
+        where,
+        include: {
+          department: true,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+        skip,
+        take: itemsPerPage,
+      }),
+
+      prisma.employee.count({
+        where,
+      }),
+    ]);
+
+    const totalPages = Math.ceil(
+      totalEmployees / itemsPerPage
+    );
 
     return res.status(200).json({
       message: "Employees retrieved successfully",
       employees,
+      pagination: {
+        page: currentPage,
+        limit: itemsPerPage,
+        totalEmployees,
+        totalPages,
+      },
     });
   } catch (error) {
     console.error("Get employees error:", error);

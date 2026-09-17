@@ -6,7 +6,7 @@ const authMiddleware = require("../middleware/auth.middleware");
 const router = express.Router();
 
 
-  // ====================REGISTER==================== 
+  //REGISTER
 router.post("/register", async (req, res) => {
   try {
     const { name, email, password } = req.body;
@@ -34,13 +34,13 @@ router.post("/register", async (req, res) => {
     // Find default role
     const role = await prisma.role.findUnique({
       where: {
-        name: "ADMIN",
+        name: "USER",
       },
     });
 
     if (!role) {
       return res.status(500).json({
-        message: "Default role not found",
+        message: "Default USER role not found",
       });
     }
 
@@ -76,7 +76,7 @@ router.post("/register", async (req, res) => {
 });
 
 
-// ==================== LOGIN ====================
+//LOGIN
 
 router.post("/login", async (req, res) => {
   try {
