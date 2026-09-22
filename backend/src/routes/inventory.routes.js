@@ -1,5 +1,11 @@
 const express = require("express");
 
+const validate = require("../middleware/validation.middleware");
+
+const {
+  createInventorySchema,
+} = require("../validators/inventory.validator");
+
 const {
   createInventoryTransaction,
   getAllInventoryTransactions,
@@ -11,13 +17,16 @@ const requirePermission = require("../middleware/permission.middleware");
 
 const router = express.Router();
 
+// CREATE INVENTORY TRANSACTION
 router.post(
   "/",
   authMiddleware,
   requirePermission("inventory.manage"),
+  validate(createInventorySchema),
   createInventoryTransaction
 );
 
+// GET ALL INVENTORY TRANSACTIONS
 router.get(
   "/",
   authMiddleware,
@@ -25,6 +34,7 @@ router.get(
   getAllInventoryTransactions
 );
 
+// GET INVENTORY TRANSACTION BY ID
 router.get(
   "/:id",
   authMiddleware,

@@ -1,12 +1,18 @@
 const prisma = require("../config/prisma");
 
-//CREATE SALE 
+// CREATE SALE
 
 const createSale = async (req, res) => {
   const { customerId, items } = req.body;
 
   try {
-    if (!customerId || !Array.isArray(items) || items.length === 0) {
+    const parsedCustomerId = parseInt(customerId);
+
+    if (
+      !Number.isInteger(parsedCustomerId) ||
+      !Array.isArray(items) ||
+      items.length === 0
+    ) {
       return res.status(400).json({
         message: "CustomerId and items are required",
       });
@@ -14,7 +20,7 @@ const createSale = async (req, res) => {
 
     const customer = await prisma.customer.findUnique({
       where: {
-        id: parseInt(customerId),
+        id: parsedCustomerId,
       },
     });
 
@@ -24,63 +30,61 @@ const createSale = async (req, res) => {
       });
     }
 
-    const saleItems = [];
-    let totalAmount = 0;
-
-    for (const item of items) {
-      const productId = parseInt(item.productId);
-      const quantity = parseInt(item.quantity);
-
-      if (!productId || !Number.isInteger(quantity) || quantity <= 0) {
-        return res.status(400).json({
-          message: "Invalid productId or quantity",
-        });
-      }
-
-      const product = await prisma.product.findUnique({
-        where: {
-          id: productId,
-        },
-      });
-
-      if (!product) {
-        return res.status(404).json({
-          message: `Product ${productId} not found`,
-        });
-      }
-
-      if (!product.isActive) {
-        return res.status(400).json({
-          message: `Product ${product.name} is inactive`,
-        });
-      }
-
-      if (product.stock < quantity) {
-        return res.status(400).json({
-          message: "Insufficient stock",
-          product: product.name,
-          currentStock: product.stock,
-          requestedQuantity: quantity,
-        });
-      }
-
-      const unitPrice = Number(product.price);
-      const subtotal = unitPrice * quantity;
-
-      totalAmount += subtotal;
-
-      saleItems.push({
-        productId,
-        quantity,
-        unitPrice,
-        subtotal,
-      });
-    }
-
     const sale = await prisma.$transaction(async (tx) => {
+      const saleItems = [];
+      let totalAmount = 0;
+
+      for (const item of items) {
+        const productId = parseInt(item.productId);
+        const quantity = parseInt(item.quantity);
+
+        if (
+          !Number.isInteger(productId) ||
+          productId <= 0 ||
+          !Number.isInteger(quantity) ||
+          quantity <= 0
+        ) {
+          throw new Error("INVALID_PRODUCT_OR_QUANTITY");
+        }
+
+        const product = await tx.product.findUnique({
+          where: {
+            id: productId,
+          },
+        });
+
+        if (!product) {
+          throw new Error(`PRODUCT_NOT_FOUND:${productId}`);
+        }
+
+        if (!product.isActive) {
+          throw new Error(`PRODUCT_INACTIVE:${product.name}`);
+        }
+
+        if (product.stock < quantity) {
+          throw new Error(
+            `INSUFFICIENT_STOCK:${product.name}:${product.stock}:${quantity}`
+          );
+        }
+
+        // السعر الحقيقي من قاعدة البيانات
+        const unitPrice = Number(product.price);
+
+        const subtotal = unitPrice * quantity;
+
+        totalAmount += subtotal;
+
+        saleItems.push({
+          productId,
+          quantity,
+          unitPrice,
+          subtotal,
+        });
+      }
+
       const newSale = await tx.sale.create({
         data: {
-          customerId: parseInt(customerId),
+          customerId: parsedCustomerId,
           userId: req.user.id,
           totalAmount,
           status: "COMPLETED",
@@ -148,6 +152,40 @@ const createSale = async (req, res) => {
     });
   } catch (error) {
     console.error("Create sale error:", error);
+
+    if (error.message === "INVALID_PRODUCT_OR_QUANTITY") {
+      return res.status(400).json({
+        message: "Invalid productId or quantity",
+      });
+    }
+
+    if (error.message.startsWith("PRODUCT_NOT_FOUND:")) {
+      const productId = error.message.split(":")[1];
+
+      return res.status(404).json({
+        message: `Product ${productId} not found`,
+      });
+    }
+
+    if (error.message.startsWith("PRODUCT_INACTIVE:")) {
+      const productName = error.message.split(":")[1];
+
+      return res.status(400).json({
+        message: `Product ${productName} is inactive`,
+      });
+    }
+
+    if (error.message.startsWith("INSUFFICIENT_STOCK:")) {
+      const [, productName, currentStock, requestedQuantity] =
+        error.message.split(":");
+
+      return res.status(400).json({
+        message: "Insufficient stock",
+        product: productName,
+        currentStock: Number(currentStock),
+        requestedQuantity: Number(requestedQuantity),
+      });
+    }
 
     return res.status(500).json({
       message: "Internal server error",

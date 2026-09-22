@@ -1,5 +1,11 @@
 const express = require("express");
 
+const validate = require("../middleware/validation.middleware");
+
+const {
+  createSaleSchema,
+} = require("../validators/sale.validator");
+
 const {
   createSale,
   getAllSales,
@@ -15,6 +21,7 @@ router.post(
   "/",
   authMiddleware,
   requirePermission("sales.create"),
+  validate(createSaleSchema),
   createSale
 );
 

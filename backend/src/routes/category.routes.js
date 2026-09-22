@@ -1,4 +1,10 @@
 const express = require("express");
+const validate = require("../middleware/validation.middleware");
+
+const {
+  createCategorySchema,
+  updateCategorySchema,
+} = require("../validators/category.validator");
 
 const {
   createCategory,
@@ -12,16 +18,23 @@ const authMiddleware = require("../middleware/auth.middleware");
 const requirePermission = require("../middleware/permission.middleware");
 
 const router = express.Router();
-
-// CREATE CATEGORY
+//post CATEGORY
 router.post(
   "/",
   authMiddleware,
   requirePermission("categories.create"),
+  validate(createCategorySchema),
   createCategory
 );
-
-// GET ALL CATEGORIES
+//Update CATEGORY
+router.put(
+  "/:id",
+  authMiddleware,
+  requirePermission("categories.update"),
+  validate(updateCategorySchema),
+  updateCategory
+);
+// GET 
 router.get(
   "/",
   authMiddleware,
@@ -37,13 +50,7 @@ router.get(
   getCategoryById
 );
 
-// UPDATE CATEGORY
-router.put(
-  "/:id",
-  authMiddleware,
-  requirePermission("categories.update"),
-  updateCategory
-);
+
 
 // DELETE CATEGORY
 router.delete(
