@@ -12,6 +12,12 @@ const createProductSchema = z
       .trim()
       .min(1, "SKU is required"),
 
+    barcode: z
+      .string()
+      .trim()
+      .min(1, "Barcode is required")
+      .optional(),
+
     description: z
       .string()
       .trim()
@@ -63,6 +69,12 @@ const updateProductSchema = z
       .string()
       .trim()
       .min(1, "SKU is required")
+      .optional(),
+
+    barcode: z
+      .string()
+      .trim()
+      .min(1, "Barcode is required")
       .optional(),
 
     description: z

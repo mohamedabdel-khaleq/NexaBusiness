@@ -14,6 +14,11 @@ const employeeRoutes = require("./routes/employee.routes");
 const notificationRoutes = require("./routes/notification.routes");
 const dashboardRoutes = require("./routes/dashboard.routes");
 const reportRoutes = require("./routes/report.routes");
+const posRoutes = require("./routes/pos.routes");
+const deliveryDriverRoutes = require("./routes/delivery-driver.routes");
+const deliveryOrderRoutes = require("./routes/delivery-order.routes");
+const deliveryLocationRoutes = require("./routes/delivery-location.routes");
+const deliveryTrackingRoutes = require("./routes/delivery-tracking.routes");
 
 const app = express();
 
@@ -32,5 +37,11 @@ app.use("/api/employees", employeeRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/dashboard", dashboardRoutes);
 app.use("/api/reports", reportRoutes);
+app.use("/api/pos", posRoutes);
+app.use("/api/delivery-drivers", deliveryDriverRoutes);
+app.use("/api/delivery-orders", deliveryOrderRoutes);
+app.use("/api/delivery-drivers", deliveryLocationRoutes);
+app.use("/api/delivery-orders", deliveryTrackingRoutes);
+
 
 module.exports = app;

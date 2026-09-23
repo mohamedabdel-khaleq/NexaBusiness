@@ -60,6 +60,7 @@ model Product {
   id          Int       @id @default(autoincrement())
   name        String
   sku         String    @unique
+  barcode String? @unique
   description String?
   price       Decimal   @db.Decimal(10, 2)
   costPrice   Decimal   @db.Decimal(10, 2)
@@ -151,7 +152,7 @@ model Sale {
 
   items       SaleItem[]
   payments    Payment[]
-
+  deliveryOrder DeliveryOrder?
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 }
@@ -194,4 +195,39 @@ model Notification {
   isRead    Boolean  @default(false)
 
   createdAt DateTime @default(now())
+}
+
+model DeliveryOrder {
+  id                   Int      @id @default(autoincrement())
+  saleId               Int      @unique
+  address              String
+  latitude             Decimal? @db.Decimal(10, 7)
+  longitude            Decimal? @db.Decimal(10, 7)
+  deliveryFee          Decimal  @db.Decimal(10, 2) @default(0)
+  status               String   @default("PENDING")
+  estimatedDeliveryTime DateTime?
+  pickedUpAt           DateTime?
+  deliveredAt          DateTime?
+  notes                String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  sale Sale @relation(fields: [saleId], references: [id])
+  driverId Int?
+driver   DeliveryDriver? @relation(fields: [driverId], references: [id])
+}
+
+model DeliveryDriver {
+  id            Int      @id @default(autoincrement())
+  name          String
+  phone         String
+  vehicleType   String?
+  vehicleNumber String?
+  isActive      Boolean  @default(true)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+  latitude    Decimal? @db.Decimal(10, 7)
+longitude   Decimal? @db.Decimal(10, 7)
+locationUpdatedAt DateTime?
+  deliveryOrders DeliveryOrder[]
 }

@@ -1,5 +1,11 @@
 const express = require("express");
 
+const validate = require("../middleware/validation.middleware");
+
+const {
+  createPaymentSchema,
+} = require("../validators/payment.validator");
+
 const {
   createPayment,
   getAllPayments,
@@ -11,13 +17,16 @@ const requirePermission = require("../middleware/permission.middleware");
 
 const router = express.Router();
 
+// CREATE PAYMENT
 router.post(
   "/",
   authMiddleware,
   requirePermission("payments.create"),
+  validate(createPaymentSchema),
   createPayment
 );
 
+// GET ALL PAYMENTS
 router.get(
   "/",
   authMiddleware,
@@ -25,6 +34,7 @@ router.get(
   getAllPayments
 );
 
+// GET PAYMENT BY ID
 router.get(
   "/:id",
   authMiddleware,
