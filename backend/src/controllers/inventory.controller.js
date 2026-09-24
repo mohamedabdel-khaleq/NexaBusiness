@@ -1,19 +1,22 @@
 const prisma = require("../config/prisma");
 
-// CREATE INVENTORY TRANSACTION
+const {
+  notifyLowStock,
+} = require("../services/notification.service");
 
+// CREATE INVENTORY TRANSACTION
 const createInventoryTransaction = async (req, res) => {
   const { productId, type, quantity, note } = req.body;
 
   try {
-    // Validate required fields
+    // VALIDATE REQUIRED FIELDS
     if (!productId || !type || quantity === undefined) {
       return res.status(400).json({
         message: "ProductId, type and quantity are required",
       });
     }
 
-    // Validate transaction type
+    // VALIDATE TRANSACTION TYPE
     const allowedTypes = [
       "PURCHASE",
       "SALE",
@@ -28,7 +31,7 @@ const createInventoryTransaction = async (req, res) => {
       });
     }
 
-    // Validate quantity
+    // VALIDATE QUANTITY
     const transactionQuantity = Number(quantity);
 
     if (
@@ -54,7 +57,7 @@ const createInventoryTransaction = async (req, res) => {
       });
     }
 
-    // Validate product ID
+    // VALIDATE PRODUCT ID
     const parsedProductId = parseInt(productId);
 
     if (!Number.isInteger(parsedProductId) || parsedProductId <= 0) {
@@ -63,7 +66,7 @@ const createInventoryTransaction = async (req, res) => {
       });
     }
 
-    // Find product
+    // FIND PRODUCT
     const product = await prisma.product.findUnique({
       where: {
         id: parsedProductId,
@@ -76,7 +79,7 @@ const createInventoryTransaction = async (req, res) => {
       });
     }
 
-    // Calculate stock change
+    // CALCULATE STOCK CHANGE
     let stockChange = 0;
 
     if (type === "PURCHASE" || type === "RETURN") {
@@ -91,7 +94,7 @@ const createInventoryTransaction = async (req, res) => {
       stockChange = transactionQuantity;
     }
 
-    // Calculate new stock
+    // CALCULATE NEW STOCK
     const newStock = product.stock + stockChange;
 
     // Prevent negative stock
@@ -103,7 +106,7 @@ const createInventoryTransaction = async (req, res) => {
       });
     }
 
-    // Create transaction and update stock together
+    // CREATE TRANSACTION + UPDATE STOCK
     const result = await prisma.$transaction(async (tx) => {
       const transaction = await tx.inventoryTransaction.create({
         data: {
@@ -129,14 +132,32 @@ const createInventoryTransaction = async (req, res) => {
       };
     });
 
-    // Send response
+    // LOW STOCK NOTIFICATION
+    try {
+      await notifyLowStock(result.product);
+
+      console.log(
+        `Low stock check completed for product #${result.product.id}`
+      );
+    } catch (notificationError) {
+      // Notification failure should not fail the inventory transaction
+      console.error(
+        "Low stock notification error:",
+        notificationError
+      );
+    }
+
+    // SUCCESS RESPONSE
     return res.status(201).json({
       message: "Inventory transaction created successfully",
       transaction: result.transaction,
       product: result.product,
     });
   } catch (error) {
-    console.error("Create inventory transaction error:", error);
+    console.error(
+      "Create inventory transaction error:",
+      error
+    );
 
     return res.status(500).json({
       message: "Internal server error",
@@ -145,24 +166,27 @@ const createInventoryTransaction = async (req, res) => {
 };
 
 // GET ALL INVENTORY TRANSACTIONS
-
 const getAllInventoryTransactions = async (req, res) => {
   try {
-    const transactions = await prisma.inventoryTransaction.findMany({
-      include: {
-        product: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+    const transactions =
+      await prisma.inventoryTransaction.findMany({
+        include: {
+          product: true,
+        },
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
 
     return res.status(200).json({
       message: "Inventory transactions retrieved successfully",
       transactions,
     });
   } catch (error) {
-    console.error("Get inventory transactions error:", error);
+    console.error(
+      "Get inventory transactions error:",
+      error
+    );
 
     return res.status(500).json({
       message: "Internal server error",
@@ -171,19 +195,27 @@ const getAllInventoryTransactions = async (req, res) => {
 };
 
 // GET INVENTORY TRANSACTION BY ID
-
 const getInventoryTransactionById = async (req, res) => {
   const { id } = req.params;
 
   try {
-    const transaction = await prisma.inventoryTransaction.findUnique({
-      where: {
-        id: parseInt(id),
-      },
-      include: {
-        product: true,
-      },
-    });
+    const parsedId = parseInt(id);
+
+    if (!Number.isInteger(parsedId) || parsedId <= 0) {
+      return res.status(400).json({
+        message: "Inventory transaction ID must be a positive integer",
+      });
+    }
+
+    const transaction =
+      await prisma.inventoryTransaction.findUnique({
+        where: {
+          id: parsedId,
+        },
+        include: {
+          product: true,
+        },
+      });
 
     if (!transaction) {
       return res.status(404).json({
@@ -196,7 +228,10 @@ const getInventoryTransactionById = async (req, res) => {
       transaction,
     });
   } catch (error) {
-    console.error("Get inventory transaction error:", error);
+    console.error(
+      "Get inventory transaction error:",
+      error
+    );
 
     return res.status(500).json({
       message: "Internal server error",

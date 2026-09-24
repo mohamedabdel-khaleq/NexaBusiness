@@ -133,7 +133,7 @@ model Customer {
   address   String?
 
   sales     Sale[]
-
+  supportTickets SupportTicket[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 }
@@ -192,6 +192,7 @@ model Notification {
 
   title     String
   message   String
+  type      String   @default("SYSTEM")
   isRead    Boolean  @default(false)
 
   createdAt DateTime @default(now())
@@ -230,4 +231,30 @@ model DeliveryDriver {
 longitude   Decimal? @db.Decimal(10, 7)
 locationUpdatedAt DateTime?
   deliveryOrders DeliveryOrder[]
+}
+
+model SupportTicket {
+  id          Int      @id @default(autoincrement())
+  customerId  Int
+  subject     String
+  description String
+  status      String   @default("OPEN")
+  priority    String   @default("MEDIUM")
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  customer Customer @relation(fields: [customerId], references: [id])
+  messages SupportMessage[]
+}
+
+model SupportMessage {
+  id        Int      @id @default(autoincrement())
+  ticketId  Int
+  sender    String
+  message   String
+
+  createdAt DateTime @default(now())
+
+  ticket SupportTicket @relation(fields: [ticketId], references: [id])
 }

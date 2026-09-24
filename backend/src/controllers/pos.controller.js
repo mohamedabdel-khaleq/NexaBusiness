@@ -1,5 +1,9 @@
 const prisma = require("../config/prisma");
 
+const {
+  createNotificationsForUsers,
+} = require("../services/notification.service");
+
 // POS CHECKOUT
 const checkout = async (req, res) => {
   const { customerId, items, payment } = req.body;
@@ -44,6 +48,7 @@ const checkout = async (req, res) => {
       });
     }
 
+    // CHECK CUSTOMER
     const customer = await prisma.customer.findUnique({
       where: {
         id: parsedCustomerId,
@@ -56,11 +61,11 @@ const checkout = async (req, res) => {
       });
     }
 
+    // CREATE SALE TRANSACTION
     const result = await prisma.$transaction(async (tx) => {
       const saleItems = [];
       let totalAmount = 0;
-
-      // 1. Check products and calculate total
+      //Check products and calculate total
       for (const item of items) {
         const productId = parseInt(item.productId);
         const quantity = parseInt(item.quantity);
@@ -107,14 +112,14 @@ const checkout = async (req, res) => {
         });
       }
 
-      // 2. Payment must cover the whole sale
+      //Payment must equal sale total
       if (paymentAmount !== totalAmount) {
         throw new Error(
           `INVALID_PAYMENT_AMOUNT:${totalAmount}:${paymentAmount}`
         );
       }
 
-      // 3. Create Sale
+      //Create Sale
       const sale = await tx.sale.create({
         data: {
           customerId: parsedCustomerId,
@@ -124,7 +129,7 @@ const checkout = async (req, res) => {
         },
       });
 
-      // 4. Create Sale Items + Update Stock + Inventory
+      //Create Sale Items
       for (const item of saleItems) {
         await tx.saleItem.create({
           data: {
@@ -157,7 +162,7 @@ const checkout = async (req, res) => {
         });
       }
 
-      // 5. Create Payment
+      // Create Payment
       const createdPayment = await tx.payment.create({
         data: {
           saleId: sale.id,
@@ -167,7 +172,7 @@ const checkout = async (req, res) => {
         },
       });
 
-      // 6. Return complete receipt data
+      //Return complete receipt data
       return {
         sale: await tx.sale.findUnique({
           where: {
@@ -175,6 +180,7 @@ const checkout = async (req, res) => {
           },
           include: {
             customer: true,
+
             user: {
               select: {
                 id: true,
@@ -182,18 +188,55 @@ const checkout = async (req, res) => {
                 email: true,
               },
             },
+
             items: {
               include: {
                 product: true,
               },
             },
+
             payments: true,
           },
         }),
+
         payment: createdPayment,
       };
     });
 
+    // AUTOMATIC NOTIFICATION → ADMINS
+    try {
+      const admins = await prisma.user.findMany({
+        where: {
+          role: {
+            name: "ADMIN",
+          },
+        },
+        select: {
+          id: true,
+        },
+      });
+
+      const adminIds = admins.map((admin) => admin.id);
+
+      await createNotificationsForUsers({
+        userIds: adminIds,
+        title: "New Sale",
+        message: `Sale #${result.sale.id} was created successfully. Total: ${result.sale.totalAmount}`,
+        type: "SALE",
+      });
+
+      console.log(
+        `Sale notification sent to ${adminIds.length} admin(s)`
+      );
+    } catch (notificationError) {
+      // Notification failure should NOT fail the completed sale
+      console.error(
+        "Sale notification error:",
+        notificationError
+      );
+    }
+
+    // SUCCESS RESPONSE
     return res.status(201).json({
       message: "Checkout completed successfully",
       checkout: result,
@@ -201,6 +244,7 @@ const checkout = async (req, res) => {
   } catch (error) {
     console.error("POS checkout error:", error);
 
+    // ERROR HANDLING
     if (error.message === "INVALID_PRODUCT_OR_QUANTITY") {
       return res.status(400).json({
         message: "Invalid productId or quantity",

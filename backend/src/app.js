@@ -19,6 +19,8 @@ const deliveryDriverRoutes = require("./routes/delivery-driver.routes");
 const deliveryOrderRoutes = require("./routes/delivery-order.routes");
 const deliveryLocationRoutes = require("./routes/delivery-location.routes");
 const deliveryTrackingRoutes = require("./routes/delivery-tracking.routes");
+const supportTicketRoutes = require("./routes/support-ticket.routes");
+const userRoutes = require("./routes/user.routes");
 
 const app = express();
 
@@ -42,6 +44,8 @@ app.use("/api/delivery-drivers", deliveryDriverRoutes);
 app.use("/api/delivery-orders", deliveryOrderRoutes);
 app.use("/api/delivery-drivers", deliveryLocationRoutes);
 app.use("/api/delivery-orders", deliveryTrackingRoutes);
+app.use("/api/support-tickets", supportTicketRoutes);
+app.use("/api/users", userRoutes);
 
 
 module.exports = app;

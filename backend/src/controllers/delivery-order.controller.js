@@ -1,4 +1,7 @@
 const prisma = require("../config/prisma");
+const {
+  notifyAdmins,
+} = require("../services/notification.service");
 
 // CREATE DELIVERY ORDER
 const createDeliveryOrder = async (req, res) => {
@@ -16,10 +19,11 @@ const createDeliveryOrder = async (req, res) => {
 
   try {
     const parsedSaleId = parseInt(saleId);
+
     const parsedDriverId =
       driverId !== undefined ? parseInt(driverId) : undefined;
 
-    // Check sale
+    // CHECK SALE
     const sale = await prisma.sale.findUnique({
       where: {
         id: parsedSaleId,
@@ -32,7 +36,7 @@ const createDeliveryOrder = async (req, res) => {
       });
     }
 
-    // Check if sale already has delivery order
+    // CHECK EXISTING DELIVERY ORDER
     const existingDeliveryOrder =
       await prisma.deliveryOrder.findUnique({
         where: {
@@ -45,8 +49,7 @@ const createDeliveryOrder = async (req, res) => {
         message: "Delivery order already exists for this sale",
       });
     }
-
-    // Check driver if provided
+    // CHECK DRIVER
     if (parsedDriverId !== undefined) {
       const driver = await prisma.deliveryDriver.findUnique({
         where: {
@@ -67,6 +70,7 @@ const createDeliveryOrder = async (req, res) => {
       }
     }
 
+    // CREATE DELIVERY ORDER
     const deliveryOrder = await prisma.deliveryOrder.create({
       data: {
         saleId: parsedSaleId,
@@ -94,12 +98,36 @@ const createDeliveryOrder = async (req, res) => {
       },
     });
 
+
+    // AUTOMATIC DELIVERY NOTIFICATION
+    try {
+      await notifyAdmins({
+        title: "New Delivery Order",
+        message: `Delivery order #${deliveryOrder.id} was created for Sale #${deliveryOrder.saleId}. Status: ${deliveryOrder.status}.`,
+        type: "DELIVERY",
+      });
+
+      console.log(
+        `Delivery creation notification sent for order #${deliveryOrder.id}`
+      );
+    } catch (notificationError) {
+      // Notification failure should not fail delivery creation
+      console.error(
+        "Delivery notification error:",
+        notificationError
+      );
+    }
+
+    // SUCCESS RESPONSE
     return res.status(201).json({
       message: "Delivery order created successfully",
       deliveryOrder,
     });
   } catch (error) {
-    console.error("Create delivery order error:", error);
+    console.error(
+      "Create delivery order error:",
+      error
+    );
 
     if (error.code === "P2002") {
       return res.status(409).json({
@@ -116,26 +144,30 @@ const createDeliveryOrder = async (req, res) => {
 // GET ALL DELIVERY ORDERS
 const getAllDeliveryOrders = async (req, res) => {
   try {
-    const deliveryOrders = await prisma.deliveryOrder.findMany({
-      include: {
-        sale: {
-          include: {
-            customer: true,
+    const deliveryOrders =
+      await prisma.deliveryOrder.findMany({
+        include: {
+          sale: {
+            include: {
+              customer: true,
+            },
           },
+          driver: true,
         },
-        driver: true,
-      },
-      orderBy: {
-        createdAt: "desc",
-      },
-    });
+        orderBy: {
+          createdAt: "desc",
+        },
+      });
 
     return res.status(200).json({
       message: "Delivery orders retrieved successfully",
       deliveryOrders,
     });
   } catch (error) {
-    console.error("Get delivery orders error:", error);
+    console.error(
+      "Get delivery orders error:",
+      error
+    );
 
     return res.status(500).json({
       message: "Internal server error",
@@ -148,30 +180,35 @@ const getDeliveryOrderById = async (req, res) => {
   const deliveryOrderId = parseInt(req.params.id);
 
   try {
-    if (!Number.isInteger(deliveryOrderId) || deliveryOrderId <= 0) {
+    if (
+      !Number.isInteger(deliveryOrderId) ||
+      deliveryOrderId <= 0
+    ) {
       return res.status(400).json({
-        message: "Delivery order ID must be a positive integer",
+        message:
+          "Delivery order ID must be a positive integer",
       });
     }
 
-    const deliveryOrder = await prisma.deliveryOrder.findUnique({
-      where: {
-        id: deliveryOrderId,
-      },
-      include: {
-        sale: {
-          include: {
-            customer: true,
-            items: {
-              include: {
-                product: true,
+    const deliveryOrder =
+      await prisma.deliveryOrder.findUnique({
+        where: {
+          id: deliveryOrderId,
+        },
+        include: {
+          sale: {
+            include: {
+              customer: true,
+              items: {
+                include: {
+                  product: true,
+                },
               },
             },
           },
+          driver: true,
         },
-        driver: true,
-      },
-    });
+      });
 
     if (!deliveryOrder) {
       return res.status(404).json({
@@ -184,7 +221,10 @@ const getDeliveryOrderById = async (req, res) => {
       deliveryOrder,
     });
   } catch (error) {
-    console.error("Get delivery order error:", error);
+    console.error(
+      "Get delivery order error:",
+      error
+    );
 
     return res.status(500).json({
       message: "Internal server error",
@@ -197,12 +237,17 @@ const updateDeliveryOrder = async (req, res) => {
   const deliveryOrderId = parseInt(req.params.id);
 
   try {
-    if (!Number.isInteger(deliveryOrderId) || deliveryOrderId <= 0) {
+    if (
+      !Number.isInteger(deliveryOrderId) ||
+      deliveryOrderId <= 0
+    ) {
       return res.status(400).json({
-        message: "Delivery order ID must be a positive integer",
+        message:
+          "Delivery order ID must be a positive integer",
       });
     }
 
+    // FIND EXISTING DELIVERY ORDER
     const existingDeliveryOrder =
       await prisma.deliveryOrder.findUnique({
         where: {
@@ -216,7 +261,7 @@ const updateDeliveryOrder = async (req, res) => {
       });
     }
 
-    // Prevent changes after delivery is completed
+    // PREVENT CHANGES AFTER DELIVERY
     if (
       existingDeliveryOrder.status === "DELIVERED" &&
       req.body.status !== "DELIVERED"
@@ -226,7 +271,7 @@ const updateDeliveryOrder = async (req, res) => {
       });
     }
 
-    // Delivery status state machine
+    // DELIVERY STATUS STATE MACHINE
     const allowedTransitions = {
       PENDING: ["ASSIGNED", "CANCELLED"],
       ASSIGNED: ["PICKED_UP", "CANCELLED"],
@@ -236,6 +281,7 @@ const updateDeliveryOrder = async (req, res) => {
       CANCELLED: [],
     };
 
+    // CHECK STATUS TRANSITION
     if (
       req.body.status !== undefined &&
       req.body.status !== existingDeliveryOrder.status
@@ -243,14 +289,18 @@ const updateDeliveryOrder = async (req, res) => {
       const currentStatus = existingDeliveryOrder.status;
       const newStatus = req.body.status;
 
-      if (!allowedTransitions[currentStatus]?.includes(newStatus)) {
+      if (
+        !allowedTransitions[currentStatus]?.includes(
+          newStatus
+        )
+      ) {
         return res.status(400).json({
           message: `Invalid delivery status transition from ${currentStatus} to ${newStatus}`,
         });
       }
     }
 
-    // Check driver if provided
+    // CHECK DRIVER
     if (req.body.driverId !== undefined) {
       const driverId =
         req.body.driverId === null
@@ -258,11 +308,12 @@ const updateDeliveryOrder = async (req, res) => {
           : parseInt(req.body.driverId);
 
       if (driverId !== null) {
-        const driver = await prisma.deliveryDriver.findUnique({
-          where: {
-            id: driverId,
-          },
-        });
+        const driver =
+          await prisma.deliveryDriver.findUnique({
+            where: {
+              id: driverId,
+            },
+          });
 
         if (!driver) {
           return res.status(404).json({
@@ -278,7 +329,7 @@ const updateDeliveryOrder = async (req, res) => {
       }
     }
 
-    // Prepare update data
+    // PREPARE UPDATE DATA
     const updateData = {
       ...req.body,
     };
@@ -299,27 +350,58 @@ const updateDeliveryOrder = async (req, res) => {
       updateData.deliveredAt = new Date();
     }
 
-    const deliveryOrder = await prisma.deliveryOrder.update({
-      where: {
-        id: deliveryOrderId,
-      },
-      data: updateData,
-      include: {
-        sale: {
-          include: {
-            customer: true,
-          },
+    // UPDATE DELIVERY ORDER
+    const deliveryOrder =
+      await prisma.deliveryOrder.update({
+        where: {
+          id: deliveryOrderId,
         },
-        driver: true,
-      },
-    });
+        data: updateData,
+        include: {
+          sale: {
+            include: {
+              customer: true,
+            },
+          },
+          driver: true,
+        },
+      });
 
+    // AUTOMATIC STATUS NOTIFICATION
+    const statusChanged =
+      req.body.status !== undefined &&
+      req.body.status !== existingDeliveryOrder.status;
+
+    if (statusChanged) {
+      try {
+        await notifyAdmins({
+          title: "Delivery Status Updated",
+          message: `Delivery order #${deliveryOrder.id} status changed from ${existingDeliveryOrder.status} to ${deliveryOrder.status}.`,
+          type: "DELIVERY",
+        });
+
+        console.log(
+          `Delivery status notification sent for order #${deliveryOrder.id}`
+        );
+      } catch (notificationError) {
+        // Notification failure should not fail delivery update
+        console.error(
+          "Delivery status notification error:",
+          notificationError
+        );
+      }
+    }
+
+    // SUCCESS RESPONSE
     return res.status(200).json({
       message: "Delivery order updated successfully",
       deliveryOrder,
     });
   } catch (error) {
-    console.error("Update delivery order error:", error);
+    console.error(
+      "Update delivery order error:",
+      error
+    );
 
     return res.status(500).json({
       message: "Internal server error",
@@ -332,9 +414,13 @@ const deleteDeliveryOrder = async (req, res) => {
   const deliveryOrderId = parseInt(req.params.id);
 
   try {
-    if (!Number.isInteger(deliveryOrderId) || deliveryOrderId <= 0) {
+    if (
+      !Number.isInteger(deliveryOrderId) ||
+      deliveryOrderId <= 0
+    ) {
       return res.status(400).json({
-        message: "Delivery order ID must be a positive integer",
+        message:
+          "Delivery order ID must be a positive integer",
       });
     }
 
@@ -361,7 +447,10 @@ const deleteDeliveryOrder = async (req, res) => {
       message: "Delivery order deleted successfully",
     });
   } catch (error) {
-    console.error("Delete delivery order error:", error);
+    console.error(
+      "Delete delivery order error:",
+      error
+    );
 
     return res.status(500).json({
       message: "Internal server error",
