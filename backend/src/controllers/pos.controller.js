@@ -65,7 +65,8 @@ const checkout = async (req, res) => {
     const result = await prisma.$transaction(async (tx) => {
       const saleItems = [];
       let totalAmount = 0;
-      //Check products and calculate total
+
+      // CHECK PRODUCTS AND CALCULATE TOTAL
       for (const item of items) {
         const productId = parseInt(item.productId);
         const quantity = parseInt(item.quantity);
@@ -93,6 +94,7 @@ const checkout = async (req, res) => {
           throw new Error(`PRODUCT_INACTIVE:${product.name}`);
         }
 
+        // Initial stock check
         if (product.stock < quantity) {
           throw new Error(
             `INSUFFICIENT_STOCK:${product.name}:${product.stock}:${quantity}`
@@ -112,14 +114,14 @@ const checkout = async (req, res) => {
         });
       }
 
-      //Payment must equal sale total
+      // PAYMENT MUST EQUAL SALE TOTAL
       if (paymentAmount !== totalAmount) {
         throw new Error(
           `INVALID_PAYMENT_AMOUNT:${totalAmount}:${paymentAmount}`
         );
       }
 
-      //Create Sale
+      // CREATE SALE
       const sale = await tx.sale.create({
         data: {
           customerId: parsedCustomerId,
@@ -129,7 +131,7 @@ const checkout = async (req, res) => {
         },
       });
 
-      //Create Sale Items
+      // CREATE SALE ITEMS + ATOMIC STOCK DECREMENT
       for (const item of saleItems) {
         await tx.saleItem.create({
           data: {
@@ -141,9 +143,15 @@ const checkout = async (req, res) => {
           },
         });
 
-        await tx.product.update({
+        // IMPORTANT:
+        // Atomic stock update.
+        // The database will only decrement if enough stock still exists.
+        const stockUpdate = await tx.product.updateMany({
           where: {
             id: item.productId,
+            stock: {
+              gte: item.quantity,
+            },
           },
           data: {
             stock: {
@@ -152,6 +160,31 @@ const checkout = async (req, res) => {
           },
         });
 
+        // If no row was updated, stock was not enough
+        // at the exact moment of the update.
+        if (stockUpdate.count === 0) {
+          const currentProduct = await tx.product.findUnique({
+            where: {
+              id: item.productId,
+            },
+            select: {
+              name: true,
+              stock: true,
+            },
+          });
+
+          if (!currentProduct) {
+            throw new Error(
+              `PRODUCT_NOT_FOUND:${item.productId}`
+            );
+          }
+
+          throw new Error(
+            `INSUFFICIENT_STOCK:${currentProduct.name}:${currentProduct.stock}:${item.quantity}`
+          );
+        }
+
+        // CREATE INVENTORY TRANSACTION
         await tx.inventoryTransaction.create({
           data: {
             productId: item.productId,
@@ -162,7 +195,7 @@ const checkout = async (req, res) => {
         });
       }
 
-      // Create Payment
+      // CREATE PAYMENT
       const createdPayment = await tx.payment.create({
         data: {
           saleId: sale.id,
@@ -172,7 +205,7 @@ const checkout = async (req, res) => {
         },
       });
 
-      //Return complete receipt data
+      // RETURN COMPLETE RECEIPT DATA
       return {
         sale: await tx.sale.findUnique({
           where: {

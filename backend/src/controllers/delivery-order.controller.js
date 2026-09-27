@@ -1,7 +1,5 @@
 const prisma = require("../config/prisma");
-const {
-  notifyAdmins,
-} = require("../services/notification.service");
+const { notifyAdmins } = require("../services/notification.service");
 
 // CREATE DELIVERY ORDER
 const createDeliveryOrder = async (req, res) => {
@@ -36,6 +34,13 @@ const createDeliveryOrder = async (req, res) => {
       });
     }
 
+    // DELIVERY CAN ONLY BE CREATED FOR COMPLETED SALE
+    if (sale.status !== "COMPLETED") {
+      return res.status(400).json({
+        message: "Delivery order can only be created for a completed sale",
+      });
+    }
+
     // CHECK EXISTING DELIVERY ORDER
     const existingDeliveryOrder =
       await prisma.deliveryOrder.findUnique({
@@ -49,6 +54,7 @@ const createDeliveryOrder = async (req, res) => {
         message: "Delivery order already exists for this sale",
       });
     }
+
     // CHECK DRIVER
     if (parsedDriverId !== undefined) {
       const driver = await prisma.deliveryDriver.findUnique({
@@ -68,6 +74,23 @@ const createDeliveryOrder = async (req, res) => {
           message: "Delivery driver is inactive",
         });
       }
+    }
+
+    // DRIVER IS REQUIRED FOR ASSIGNED/PICKED_UP/IN_TRANSIT/DELIVERED
+    const driverRequiredStatuses = [
+      "ASSIGNED",
+      "PICKED_UP",
+      "IN_TRANSIT",
+      "DELIVERED",
+    ];
+
+    if (
+      driverRequiredStatuses.includes(status) &&
+      parsedDriverId === undefined
+    ) {
+      return res.status(400).json({
+        message: `Driver is required for ${status} status`,
+      });
     }
 
     // CREATE DELIVERY ORDER
@@ -98,7 +121,6 @@ const createDeliveryOrder = async (req, res) => {
       },
     });
 
-
     // AUTOMATIC DELIVERY NOTIFICATION
     try {
       await notifyAdmins({
@@ -111,23 +133,18 @@ const createDeliveryOrder = async (req, res) => {
         `Delivery creation notification sent for order #${deliveryOrder.id}`
       );
     } catch (notificationError) {
-      // Notification failure should not fail delivery creation
       console.error(
         "Delivery notification error:",
         notificationError
       );
     }
 
-    // SUCCESS RESPONSE
     return res.status(201).json({
       message: "Delivery order created successfully",
       deliveryOrder,
     });
   } catch (error) {
-    console.error(
-      "Create delivery order error:",
-      error
-    );
+    console.error("Create delivery order error:", error);
 
     if (error.code === "P2002") {
       return res.status(409).json({
@@ -164,10 +181,7 @@ const getAllDeliveryOrders = async (req, res) => {
       deliveryOrders,
     });
   } catch (error) {
-    console.error(
-      "Get delivery orders error:",
-      error
-    );
+    console.error("Get delivery orders error:", error);
 
     return res.status(500).json({
       message: "Internal server error",
@@ -185,8 +199,7 @@ const getDeliveryOrderById = async (req, res) => {
       deliveryOrderId <= 0
     ) {
       return res.status(400).json({
-        message:
-          "Delivery order ID must be a positive integer",
+        message: "Delivery order ID must be a positive integer",
       });
     }
 
@@ -221,10 +234,7 @@ const getDeliveryOrderById = async (req, res) => {
       deliveryOrder,
     });
   } catch (error) {
-    console.error(
-      "Get delivery order error:",
-      error
-    );
+    console.error("Get delivery order error:", error);
 
     return res.status(500).json({
       message: "Internal server error",
@@ -242,12 +252,10 @@ const updateDeliveryOrder = async (req, res) => {
       deliveryOrderId <= 0
     ) {
       return res.status(400).json({
-        message:
-          "Delivery order ID must be a positive integer",
+        message: "Delivery order ID must be a positive integer",
       });
     }
 
-    // FIND EXISTING DELIVERY ORDER
     const existingDeliveryOrder =
       await prisma.deliveryOrder.findUnique({
         where: {
@@ -264,6 +272,7 @@ const updateDeliveryOrder = async (req, res) => {
     // PREVENT CHANGES AFTER DELIVERY
     if (
       existingDeliveryOrder.status === "DELIVERED" &&
+      req.body.status !== undefined &&
       req.body.status !== "DELIVERED"
     ) {
       return res.status(400).json({
@@ -290,9 +299,7 @@ const updateDeliveryOrder = async (req, res) => {
       const newStatus = req.body.status;
 
       if (
-        !allowedTransitions[currentStatus]?.includes(
-          newStatus
-        )
+        !allowedTransitions[currentStatus]?.includes(newStatus)
       ) {
         return res.status(400).json({
           message: `Invalid delivery status transition from ${currentStatus} to ${newStatus}`,
@@ -329,10 +336,47 @@ const updateDeliveryOrder = async (req, res) => {
       }
     }
 
-    // PREPARE UPDATE DATA
+    const newStatus = req.body.status;
+
+    // DRIVER REQUIRED FOR DELIVERY STATUSES
+    const driverRequiredStatuses = [
+      "ASSIGNED",
+      "PICKED_UP",
+      "IN_TRANSIT",
+      "DELIVERED",
+    ];
+
+    if (driverRequiredStatuses.includes(newStatus)) {
+      const finalDriverId =
+        req.body.driverId !== undefined
+          ? req.body.driverId
+          : existingDeliveryOrder.driverId;
+
+      if (!finalDriverId) {
+        return res.status(400).json({
+          message: `Driver is required for ${newStatus} status`,
+        });
+      }
+    }
+
+    // PREPARE SAFE UPDATE DATA
     const updateData = {
-      ...req.body,
+      address: req.body.address,
+      latitude: req.body.latitude,
+      longitude: req.body.longitude,
+      deliveryFee: req.body.deliveryFee,
+      driverId: req.body.driverId,
+      status: req.body.status,
+      estimatedDeliveryTime: req.body.estimatedDeliveryTime,
+      notes: req.body.notes,
     };
+
+    // REMOVE UNDEFINED VALUES
+    Object.keys(updateData).forEach((key) => {
+      if (updateData[key] === undefined) {
+        delete updateData[key];
+      }
+    });
 
     // Record pickup time
     if (
@@ -384,7 +428,6 @@ const updateDeliveryOrder = async (req, res) => {
           `Delivery status notification sent for order #${deliveryOrder.id}`
         );
       } catch (notificationError) {
-        // Notification failure should not fail delivery update
         console.error(
           "Delivery status notification error:",
           notificationError
@@ -392,16 +435,12 @@ const updateDeliveryOrder = async (req, res) => {
       }
     }
 
-    // SUCCESS RESPONSE
     return res.status(200).json({
       message: "Delivery order updated successfully",
       deliveryOrder,
     });
   } catch (error) {
-    console.error(
-      "Update delivery order error:",
-      error
-    );
+    console.error("Update delivery order error:", error);
 
     return res.status(500).json({
       message: "Internal server error",
@@ -419,8 +458,7 @@ const deleteDeliveryOrder = async (req, res) => {
       deliveryOrderId <= 0
     ) {
       return res.status(400).json({
-        message:
-          "Delivery order ID must be a positive integer",
+        message: "Delivery order ID must be a positive integer",
       });
     }
 
@@ -437,6 +475,13 @@ const deleteDeliveryOrder = async (req, res) => {
       });
     }
 
+    // PREVENT DELETE AFTER DELIVERY
+    if (existingDeliveryOrder.status === "DELIVERED") {
+      return res.status(400).json({
+        message: "Delivered orders cannot be deleted",
+      });
+    }
+
     await prisma.deliveryOrder.delete({
       where: {
         id: deliveryOrderId,
@@ -447,10 +492,7 @@ const deleteDeliveryOrder = async (req, res) => {
       message: "Delivery order deleted successfully",
     });
   } catch (error) {
-    console.error(
-      "Delete delivery order error:",
-      error
-    );
+    console.error("Delete delivery order error:", error);
 
     return res.status(500).json({
       message: "Internal server error",

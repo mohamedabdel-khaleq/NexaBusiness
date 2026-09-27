@@ -1,5 +1,5 @@
 const express = require("express");
-
+const requirePermission = require("../middleware/permission.middleware");
 const authMiddleware = require("../middleware/auth.middleware");
 
 const {
@@ -17,9 +17,9 @@ const router = express.Router();
 router.post(
   "/",
   authMiddleware,
+  requirePermission("users.manage"),
   createNotification
 );
-
 // Get my notifications
 router.get(
   "/",
