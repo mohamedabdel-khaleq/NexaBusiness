@@ -1,6 +1,15 @@
 import API from "./api";
 
-export const registerUser = async (name, email, password) => {
+export async function loginUser(email, password) {
+  const response = await API.post("/auth/login", {
+    email,
+    password,
+  });
+
+  return response.data;
+}
+
+export async function registerUser(name, email, password) {
   const response = await API.post("/auth/register", {
     name,
     email,
@@ -8,13 +17,14 @@ export const registerUser = async (name, email, password) => {
   });
 
   return response.data;
-};
+}
 
-export const loginUser = async (email, password) => {
-  const response = await API.post("/auth/login", {
-    email,
-    password,
+export async function getCurrentUser(token) {
+  const response = await API.get("/auth/me", {
+    headers: {
+      Authorization: `Bearer ${token}`,
+    },
   });
 
   return response.data;
-};
+}

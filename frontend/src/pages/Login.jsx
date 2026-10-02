@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 
 import { loginUser } from "../services/auth.service";
+import { useAuth } from "../context/AuthContext";
 
 const loginSchema = z.object({
   email: z
@@ -33,6 +34,7 @@ const loginSchema = z.object({
 
 function Login() {
   const navigate = useNavigate();
+  const { login } = useAuth();
 
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
@@ -58,13 +60,15 @@ function Login() {
 
       console.log("LOGIN RESPONSE:", response);
 
-      // JWT/AuthContext will be added next.
-      // For now, we only verify that login works.
+      login(response.user, response.token);
+
+      navigate("/dashboard");
     } catch (error) {
       console.error("LOGIN ERROR:", error);
 
       const message =
         error.response?.data?.message ||
+        error.message ||
         "Unable to sign in. Please try again.";
 
       setServerError(message);
@@ -77,19 +81,11 @@ function Login() {
     <main className="min-h-screen bg-slate-950">
       <div className="min-h-screen lg:grid lg:grid-cols-[1.15fr_0.85fr]">
 
-        {/* =====================================================
-            LEFT - BRANDING
-        ====================================================== */}
-
         <section className="relative hidden overflow-hidden lg:block">
-
-          {/* Background */}
 
           <div className="absolute inset-0 bg-[radial-gradient(circle_at_20%_20%,rgba(59,130,246,0.25),transparent_35%),radial-gradient(circle_at_80%_80%,rgba(99,102,241,0.2),transparent_35%)]" />
 
           <div className="absolute inset-0 bg-gradient-to-br from-slate-900 via-blue-950 to-slate-950" />
-
-          {/* Decorative grid */}
 
           <div
             className="absolute inset-0 opacity-[0.06]"
@@ -100,15 +96,11 @@ function Login() {
             }}
           />
 
-          {/* Glow */}
-
           <div className="absolute -left-32 top-1/4 h-96 w-96 rounded-full bg-blue-500/20 blur-3xl" />
 
           <div className="absolute -right-32 bottom-0 h-96 w-96 rounded-full bg-indigo-500/20 blur-3xl" />
 
           <div className="relative z-10 flex min-h-screen flex-col p-10 xl:p-14">
-
-            {/* Logo */}
 
             <div>
               <div className="flex items-center gap-3">
@@ -132,8 +124,6 @@ function Login() {
 
               </div>
             </div>
-
-            {/* Hero */}
 
             <div className="flex flex-1 items-center">
 
@@ -162,11 +152,7 @@ function Login() {
                   operations from one powerful workspace.
                 </p>
 
-                {/* Dashboard Preview */}
-
                 <div className="mt-10 overflow-hidden rounded-2xl border border-white/10 bg-white/[0.06] shadow-2xl shadow-black/20 backdrop-blur-xl">
-
-                  {/* Dashboard Header */}
 
                   <div className="flex items-center justify-between border-b border-white/10 px-5 py-4">
 
@@ -185,8 +171,6 @@ function Login() {
                     </div>
 
                   </div>
-
-                  {/* Stats */}
 
                   <div className="grid grid-cols-3 gap-3 p-4">
 
@@ -209,8 +193,6 @@ function Login() {
                     />
 
                   </div>
-
-                  {/* Chart */}
 
                   <div className="px-4 pb-4">
 
@@ -256,16 +238,11 @@ function Login() {
 
                 </div>
 
-                {/* Features */}
-
                 <div className="mt-7 flex flex-wrap gap-x-6 gap-y-3">
 
                   <Feature text="Sales & POS" />
-
                   <Feature text="Inventory" />
-
                   <Feature text="Customers" />
-
                   <Feature text="Reports" />
 
                 </div>
@@ -273,8 +250,6 @@ function Login() {
               </div>
 
             </div>
-
-            {/* Footer */}
 
             <div className="flex items-center justify-between text-xs text-slate-500">
 
@@ -288,15 +263,9 @@ function Login() {
 
         </section>
 
-        {/* =====================================================
-            RIGHT - LOGIN
-        ====================================================== */}
-
         <section className="flex min-h-screen items-center justify-center bg-slate-50 px-5 py-10 sm:px-8">
 
           <div className="w-full max-w-[430px]">
-
-            {/* Mobile Branding */}
 
             <div className="mb-10 lg:hidden">
 
@@ -320,8 +289,6 @@ function Login() {
 
             </div>
 
-            {/* Heading */}
-
             <div className="mb-8">
 
               <p className="mb-3 text-sm font-semibold text-blue-600">
@@ -338,23 +305,17 @@ function Login() {
 
             </div>
 
-            {/* Server Error */}
-
             {serverError && (
               <div className="mb-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm font-medium text-red-600">
                 {serverError}
               </div>
             )}
 
-            {/* Form */}
-
             <form
               onSubmit={handleSubmit(onSubmit)}
               noValidate
               className="space-y-5"
             >
-
-              {/* Email */}
 
               <div>
 
@@ -407,8 +368,6 @@ function Login() {
                 )}
 
               </div>
-
-              {/* Password */}
 
               <div>
 
@@ -493,8 +452,6 @@ function Login() {
 
               </div>
 
-              {/* Remember Me */}
-
               <label className="flex cursor-pointer items-center gap-3">
 
                 <input
@@ -507,8 +464,6 @@ function Login() {
                 </span>
 
               </label>
-
-              {/* Submit */}
 
               <button
                 type="submit"
@@ -537,8 +492,6 @@ function Login() {
 
             </form>
 
-            {/* Create Account */}
-
             <div className="mt-6 text-center text-sm text-slate-500">
 
               Don&apos;t have an account?{" "}
@@ -552,8 +505,6 @@ function Login() {
               </button>
 
             </div>
-
-            {/* Security */}
 
             <div className="mt-8 flex items-center justify-center gap-2 text-center text-xs text-slate-400">
 
@@ -572,22 +523,16 @@ function Login() {
   );
 }
 
-/* =====================================================
-   Preview Card
-===================================================== */
-
 function PreviewCard({ icon, label, value }) {
   return (
     <div className="rounded-xl border border-white/10 bg-white/[0.04] p-3">
 
       <div className="flex items-center gap-2 text-slate-400">
-
         {icon}
 
         <span className="text-[10px]">
           {label}
         </span>
-
       </div>
 
       <p className="mt-2 text-sm font-semibold text-white">
@@ -597,10 +542,6 @@ function PreviewCard({ icon, label, value }) {
     </div>
   );
 }
-
-/* =====================================================
-   Feature
-===================================================== */
 
 function Feature({ text }) {
   return (
