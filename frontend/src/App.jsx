@@ -10,7 +10,9 @@ import Register from "./pages/Register";
 import ApiTest from "./pages/ApiTest";
 import Dashboard from "./pages/Dashboard";
 import Sales from "./pages/Sales";
-
+import Inventory from "./pages/Inventory";
+import Customers from "./pages/Customers";
+import Employees from "./pages/Employees";
 import DashboardLayout from "./layouts/DashboardLayout";
 
 function App() {
@@ -48,6 +50,19 @@ function App() {
             path="/sales"
             element={<Sales />}
           />
+
+            <Route
+            path="/inventory"
+            element={<Inventory />}
+          />
+
+            <Route
+            path="/customers"
+            element={<Customers />}
+          />
+
+          <Route path="/employees" element={<Employees />} />
+
         </Route>
       </Routes>
     </BrowserRouter>
