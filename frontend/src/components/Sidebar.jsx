@@ -4,8 +4,11 @@ import {
   LayoutDashboard,
   ShoppingCart,
   Package,
+  Tags,
+  Boxes,
   Users,
   UserRoundCog,
+  CreditCard,
   BarChart4,
   Settings,
   HelpCircle,
@@ -25,8 +28,18 @@ const mainNavigation = [
     path: "/sales",
   },
   {
-    label: "Inventory",
+    label: "Products",
     icon: Package,
+    path: "/products",
+  },
+  {
+    label: "Categories",
+    icon: Tags,
+    path: "/categories",
+  },
+  {
+    label: "Inventory",
+    icon: Boxes,
     path: "/inventory",
   },
   {
@@ -39,6 +52,11 @@ const mainNavigation = [
     icon: UserRoundCog,
     path: "/employees",
   },
+  {
+  label: "Payments",
+  icon: CreditCard,
+  path: "/payments",
+},
 ];
 
 const analyticsNavigation = [

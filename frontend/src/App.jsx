@@ -10,9 +10,12 @@ import Register from "./pages/Register";
 import ApiTest from "./pages/ApiTest";
 import Dashboard from "./pages/Dashboard";
 import Sales from "./pages/Sales";
+import Products from "./pages/Products";
+import Categories from "./pages/Categories";
 import Inventory from "./pages/Inventory";
 import Customers from "./pages/Customers";
 import Employees from "./pages/Employees";
+import Payments from "./pages/Payments";
 import DashboardLayout from "./layouts/DashboardLayout";
 
 function App() {
@@ -41,6 +44,7 @@ function App() {
         />
 
         <Route element={<DashboardLayout />}>
+
           <Route
             path="/dashboard"
             element={<Dashboard />}
@@ -51,17 +55,35 @@ function App() {
             element={<Sales />}
           />
 
-            <Route
+          <Route
+            path="/products"
+            element={<Products />}
+          />
+
+          <Route
+            path="/categories"
+            element={<Categories />}
+          />
+
+          <Route
             path="/inventory"
             element={<Inventory />}
           />
 
-            <Route
+          <Route
             path="/customers"
             element={<Customers />}
           />
 
-          <Route path="/employees" element={<Employees />} />
+          <Route
+            path="/employees"
+            element={<Employees />}
+          />
+
+          <Route
+  path="/payments"
+  element={<Payments />}
+/>
 
         </Route>
       </Routes>
