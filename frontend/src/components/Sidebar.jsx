@@ -14,6 +14,7 @@ import {
   HelpCircle,
   ChevronLeft,
   ChevronRight,
+  ShieldCheck,
 } from "lucide-react";
 
 const mainNavigation = [
@@ -53,7 +54,12 @@ const mainNavigation = [
     path: "/employees",
   },
   {
-  label: "Payments",
+    label: "Users",
+    icon: ShieldCheck,
+    path: "/users",
+  },
+  {
+    label: "Payments",
   icon: CreditCard,
   path: "/payments",
 },

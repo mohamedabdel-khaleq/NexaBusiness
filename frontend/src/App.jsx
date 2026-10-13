@@ -16,6 +16,8 @@ import Inventory from "./pages/Inventory";
 import Customers from "./pages/Customers";
 import Employees from "./pages/Employees";
 import Payments from "./pages/Payments";
+import Reports from "./pages/Reports";
+import UsersPage from "./pages/Users";
 import DashboardLayout from "./layouts/DashboardLayout";
 
 function App() {
@@ -81,9 +83,13 @@ function App() {
           />
 
           <Route
-  path="/payments"
-  element={<Payments />}
-/>
+            path="/payments"
+            element={<Payments />}
+          />
+
+          <Route path="/reports" element={<Reports />} />
+
+          <Route path="/users" element={<UsersPage />} />
 
         </Route>
       </Routes>
