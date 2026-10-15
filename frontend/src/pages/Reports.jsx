@@ -1,3 +1,4 @@
+
 import { useCallback, useEffect, useState } from "react";
 import {
   BarChart3,
@@ -5,13 +6,15 @@ import {
   CheckCircle2,
   CircleDollarSign,
   Clock3,
-  FileText,
+  FileDown,
+  FileSpreadsheet,
+  Printer,
   RefreshCw,
   TrendingUp,
-  X,
   AlertCircle,
 } from "lucide-react";
-
+import { jsPDF } from "jspdf";
+import autoTable from "jspdf-autotable";
 import API from "../services/api";
 
 const initialFilters = {
@@ -19,88 +22,72 @@ const initialFilters = {
   to: "",
 };
 
-const formatCurrency = (value) => {
-  return new Intl.NumberFormat("en-US", {
+const formatCurrency = (value) =>
+  new Intl.NumberFormat("en-US", {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 2,
   }).format(Number(value) || 0);
+
+const formatNumber = (value) =>
+  new Intl.NumberFormat("en-US").format(Number(value) || 0);
+
+const formatDate = (value) => {
+  if (!value) return "Not specified";
+
+  const date = new Date(`${value}T00:00:00`);
+
+  return Number.isNaN(date.getTime())
+    ? value
+    : date.toLocaleDateString("en-US", {
+        year: "numeric",
+        month: "short",
+        day: "numeric",
+      });
 };
 
-const formatNumber = (value) => {
-  return new Intl.NumberFormat("en-US").format(
-    Number(value) || 0
-  );
+const getPeriodLabel = (filters) => {
+  if (filters.from && filters.to) {
+    return `${formatDate(filters.from)} - ${formatDate(filters.to)}`;
+  }
+
+  if (filters.from) return `From ${formatDate(filters.from)}`;
+  if (filters.to) return `Until ${formatDate(filters.to)}`;
+
+  return "All available dates";
 };
 
-const reportCards = [
-  {
-    key: "salesCount",
-    title: "Total Sales",
-    description: "Total sales transactions",
-    icon: FileText,
-    iconStyle: "bg-blue-50 text-blue-600",
-    valueType: "number",
-  },
-  {
-    key: "totalRevenue",
-    title: "Total Revenue",
-    description: "Total sales value",
-    icon: TrendingUp,
-    iconStyle: "bg-emerald-50 text-emerald-600",
-    valueType: "currency",
-  },
-  {
-    key: "totalPaidAmount",
-    title: "Paid Amount",
-    description: "Payments received",
-    icon: CheckCircle2,
-    iconStyle: "bg-violet-50 text-violet-600",
-    valueType: "currency",
-  },
-  {
-    key: "totalOutstandingAmount",
-    title: "Outstanding",
-    description: "Remaining amount",
-    icon: Clock3,
-    iconStyle: "bg-amber-50 text-amber-600",
-    valueType: "currency",
-  },
-];
+const downloadFile = (content, type, filename) => {
+  const blob = new Blob([content], { type });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
 
-function Reports() {
-  const [report, setReport] = useState({
-    salesCount: 0,
-    totalRevenue: 0,
-    totalPaidAmount: 0,
-    totalOutstandingAmount: 0,
-  });
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
 
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+};
+
+export default function Reports() {
   const [filters, setFilters] = useState(initialFilters);
-  const [appliedFilters, setAppliedFilters] = useState(initialFilters);
-
+  const [report, setReport] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
 
-  const fetchReport = useCallback(async (selectedFilters) => {
+  const fetchReport = useCallback(async (activeFilters = filters) => {
     setLoading(true);
     setError("");
 
     try {
       const params = {};
 
-      if (selectedFilters.from) {
-        params.from = selectedFilters.from;
-      }
+      if (activeFilters.from) params.from = activeFilters.from;
+      if (activeFilters.to) params.to = activeFilters.to;
 
-      if (selectedFilters.to) {
-        params.to = selectedFilters.to;
-      }
-
-      const response = await API.get("/reports/sales", {
-        params,
-      });
-
+      const response = await API.get("/reports/sales", { params });
       const data = response.data;
 
       setReport({
@@ -111,8 +98,6 @@ function Reports() {
           Number(data.totalOutstandingAmount) || 0,
       });
     } catch (err) {
-      console.error("Failed to fetch sales report:", err);
-
       setError(
         err.response?.data?.message ||
           "Unable to load the sales report. Please try again."
@@ -120,7 +105,7 @@ function Reports() {
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [filters]);
 
   useEffect(() => {
     fetchReport(initialFilters);
@@ -129,8 +114,8 @@ function Reports() {
   const handleFilterChange = (event) => {
     const { name, value } = event.target;
 
-    setFilters((current) => ({
-      ...current,
+    setFilters((previous) => ({
+      ...previous,
       [name]: value,
     }));
   };
@@ -143,367 +128,558 @@ function Reports() {
       filters.to &&
       filters.from > filters.to
     ) {
-      setError("The start date cannot be after the end date.");
+      setError("The start date cannot be later than the end date.");
       return;
     }
 
-    setAppliedFilters({ ...filters });
     fetchReport(filters);
   };
 
-  const handleClearFilters = () => {
+  const handleResetFilters = () => {
     setFilters(initialFilters);
-    setAppliedFilters(initialFilters);
     fetchReport(initialFilters);
   };
 
-  const handleRefresh = () => {
-    fetchReport(appliedFilters);
+  const isReady = Boolean(report) && !loading && !error;
+
+  const collectionRate =
+    report && report.totalRevenue > 0
+      ? Math.min(
+          100,
+          (report.totalPaidAmount / report.totalRevenue) * 100
+        )
+      : 0;
+
+  const summaryRows = report
+    ? [
+        ["Total Sales", formatNumber(report.salesCount)],
+        ["Total Revenue", formatCurrency(report.totalRevenue)],
+        ["Amount Collected", formatCurrency(report.totalPaidAmount)],
+        [
+          "Outstanding Amount",
+          formatCurrency(report.totalOutstandingAmount),
+        ],
+        ["Collection Rate", `${collectionRate.toFixed(1)}%`],
+      ]
+    : [];
+
+  const exportPDF = () => {
+    if (!isReady) return;
+
+    try {
+      const doc = new jsPDF();
+      const pageWidth = doc.internal.pageSize.getWidth();
+
+      doc.setFont("helvetica", "bold");
+      doc.setFontSize(21);
+      doc.text("NexaBusiness", 14, 20);
+
+      doc.setFont("helvetica", "normal");
+      doc.setFontSize(15);
+      doc.text("Sales & Financial Report", 14, 30);
+
+      doc.setFontSize(10);
+      doc.text(`Reporting period: ${getPeriodLabel(filters)}`, 14, 39);
+      doc.text(
+        `Generated: ${new Date().toLocaleString("en-US")}`,
+        14,
+        45
+      );
+
+      autoTable(doc, {
+        startY: 54,
+        head: [["Metric", "Value"]],
+        body: summaryRows,
+        theme: "striped",
+        headStyles: {
+          fillColor: [37, 99, 235],
+          textColor: 255,
+        },
+        styles: {
+          font: "helvetica",
+          fontSize: 10,
+          cellPadding: 5,
+        },
+        columnStyles: {
+          0: { cellWidth: 100 },
+          1: { halign: "right" },
+        },
+        margin: { left: 14, right: 14 },
+      });
+
+      const finalY = doc.lastAutoTable?.finalY || 100;
+
+      doc.setFontSize(9);
+      doc.setFont("helvetica", "normal");
+      doc.text(
+        "Generated by NexaBusiness",
+        14,
+        Math.min(finalY + 15, 275)
+      );
+
+      const safeDate = new Date().toISOString().slice(0, 10);
+      doc.save(`nexabusiness-report-${safeDate}.pdf`);
+    } catch (err) {
+      console.error("PDF export failed:", err);
+      window.alert("Could not generate the PDF. Please try again.");
+    }
   };
 
-  const hasActiveFilters =
-    Boolean(appliedFilters.from) ||
-    Boolean(appliedFilters.to);
+  const exportCSV = () => {
+    if (!isReady) return;
+
+    const escapeCSV = (value) =>
+      `"${String(value).replace(/"/g, '""')}"`;
+
+    const rows = [
+      ["NexaBusiness Sales & Financial Report"],
+      ["Reporting Period", getPeriodLabel(filters)],
+      ["Generated", new Date().toLocaleString("en-US")],
+      [],
+      ["Metric", "Value"],
+      ...summaryRows,
+    ];
+
+    const csv = "\uFEFF" +
+      rows
+        .map((row) => row.map(escapeCSV).join(","))
+        .join("\r\n");
+
+    const safeDate = new Date().toISOString().slice(0, 10);
+
+    downloadFile(
+      csv,
+      "text/csv;charset=utf-8;",
+      `nexabusiness-report-${safeDate}.csv`
+    );
+  };
+
+  const printReport = () => {
+    if (!isReady) return;
+
+    const printWindow = window.open("", "_blank", "width=900,height=700");
+
+    if (!printWindow) {
+      window.alert(
+        "The print window was blocked. Allow pop-ups and try again."
+      );
+      return;
+    }
+
+    const rowsHTML = summaryRows
+      .map(
+        ([label, value]) => `
+          <tr>
+            <td>${label}</td>
+            <td>${value}</td>
+          </tr>
+        `
+      )
+      .join("");
+
+    printWindow.document.write(`
+      <!DOCTYPE html>
+      <html lang="en">
+        <head>
+          <meta charset="UTF-8" />
+          <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+          <title>NexaBusiness Financial Report</title>
+          <style>
+            body {
+              font-family: Arial, sans-serif;
+              color: #111827;
+              max-width: 800px;
+              margin: 40px auto;
+              padding: 24px;
+            }
+            h1 { margin-bottom: 6px; }
+            .muted { color: #6b7280; margin-bottom: 24px; }
+            table { width: 100%; border-collapse: collapse; margin-top: 24px; }
+            th, td { padding: 14px; border: 1px solid #e5e7eb; text-align: left; }
+            th { background: #eff6ff; }
+            td:last-child { text-align: right; font-weight: bold; }
+            footer { margin-top: 32px; color: #6b7280; font-size: 12px; }
+            @media print {
+              body { margin: 0; padding: 12px; }
+            }
+          </style>
+        </head>
+        <body>
+          <h1>NexaBusiness</h1>
+          <h2>Sales & Financial Report</h2>
+          <p class="muted">
+            Reporting period: ${getPeriodLabel(filters)}<br />
+            Generated: ${new Date().toLocaleString("en-US")}
+          </p>
+          <table>
+            <thead><tr><th>Metric</th><th>Value</th></tr></thead>
+            <tbody>${rowsHTML}</tbody>
+          </table>
+          <footer>Generated by NexaBusiness</footer>
+          <script>
+            window.onload = function() {
+              window.print();
+            };
+          </script>
+        </body>
+      </html>
+    `);
+
+    printWindow.document.close();
+  };
+
+  const kpis = report
+    ? [
+        {
+          label: "Total Sales",
+          value: formatNumber(report.salesCount),
+          icon: BarChart3,
+          iconStyle: "bg-blue-50 text-blue-600",
+          description: "Sales in the selected period",
+        },
+        {
+          label: "Total Revenue",
+          value: formatCurrency(report.totalRevenue),
+          icon: CircleDollarSign,
+          iconStyle: "bg-violet-50 text-violet-600",
+          description: "Total sales value",
+        },
+        {
+          label: "Amount Collected",
+          value: formatCurrency(report.totalPaidAmount),
+          icon: CheckCircle2,
+          iconStyle: "bg-emerald-50 text-emerald-600",
+          description: "Payments received",
+        },
+        {
+          label: "Outstanding",
+          value: formatCurrency(report.totalOutstandingAmount),
+          icon: Clock3,
+          iconStyle: "bg-amber-50 text-amber-600",
+          description: "Remaining amount",
+        },
+      ]
+    : [];
 
   return (
-    <div className="min-h-full space-y-6 pb-8">
-      {/* Page Header */}
-      <div className="flex flex-col justify-between gap-4 sm:flex-row sm:items-center">
+    <div className="space-y-6 p-4 sm:p-6 lg:p-8">
+      <div className="flex flex-col gap-4 xl:flex-row xl:items-center xl:justify-between">
         <div>
           <div className="mb-2 flex items-center gap-2 text-sm font-medium text-blue-600">
             <BarChart3 size={17} />
-            Analytics & Insights
+            Analytics
           </div>
-
-          <h1 className="text-2xl font-bold tracking-tight text-slate-900 sm:text-3xl">
+          <h1 className="text-2xl font-bold tracking-tight text-gray-900 sm:text-3xl">
             Reports
           </h1>
-
-          <p className="mt-2 max-w-2xl text-sm text-slate-500">
-            Track your sales performance, revenue, and outstanding
-            payments in one place.
+          <p className="mt-2 text-sm text-gray-500">
+            Monitor sales performance and financial results.
           </p>
         </div>
 
-        <button
-          type="button"
-          onClick={handleRefresh}
-          disabled={loading}
-          className="inline-flex items-center justify-center gap-2 self-start rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60 sm:self-auto"
-        >
-          <RefreshCw
-            size={16}
-            className={loading ? "animate-spin" : ""}
-          />
-          Refresh
-        </button>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => fetchReport(filters)}
+            disabled={loading}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
+            Refresh
+          </button>
+
+          <button
+            type="button"
+            onClick={exportPDF}
+            disabled={!isReady}
+            className="inline-flex items-center gap-2 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <FileDown size={16} />
+            Export PDF
+          </button>
+
+          <button
+            type="button"
+            onClick={exportCSV}
+            disabled={!isReady}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <FileSpreadsheet size={16} />
+            Export CSV
+          </button>
+
+          <button
+            type="button"
+            onClick={printReport}
+            disabled={!isReady}
+            className="inline-flex items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 shadow-sm transition hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            <Printer size={16} />
+            Print
+          </button>
+        </div>
       </div>
 
-      {/* Date Filters */}
-      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm sm:p-6">
-        <div className="mb-5 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-blue-50 text-blue-600">
-            <CalendarDays size={20} />
-          </div>
-
-          <div>
-            <h2 className="font-semibold text-slate-900">
-              Filter Reports
-            </h2>
-            <p className="mt-1 text-xs text-slate-500">
-              Select a date range to analyze your sales.
-            </p>
-          </div>
+      <form
+        onSubmit={handleApplyFilters}
+        className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm"
+      >
+        <div className="mb-4 flex items-center gap-2">
+          <CalendarDays size={19} className="text-blue-600" />
+          <h2 className="font-semibold text-gray-900">Report Period</h2>
         </div>
 
-        <form
-          onSubmit={handleApplyFilters}
-          className="grid grid-cols-1 items-end gap-4 md:grid-cols-2 xl:grid-cols-[1fr_1fr_auto_auto]"
-        >
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-[1fr_1fr_auto_auto] xl:items-end">
           <div>
             <label
-              htmlFor="report-from"
-              className="mb-2 block text-sm font-medium text-slate-700"
+              htmlFor="from"
+              className="mb-2 block text-sm font-medium text-gray-700"
             >
-              From Date
+              From
             </label>
-
             <input
-              id="report-from"
-              type="date"
+              id="from"
               name="from"
+              type="date"
               value={filters.from}
               onChange={handleFilterChange}
-              max={filters.to || undefined}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
           </div>
 
           <div>
             <label
-              htmlFor="report-to"
-              className="mb-2 block text-sm font-medium text-slate-700"
+              htmlFor="to"
+              className="mb-2 block text-sm font-medium text-gray-700"
             >
-              To Date
+              To
             </label>
-
             <input
-              id="report-to"
-              type="date"
+              id="to"
               name="to"
+              type="date"
               value={filters.to}
               onChange={handleFilterChange}
-              min={filters.from || undefined}
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-700 outline-none transition focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10"
+              className="w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none transition focus:border-blue-500 focus:ring-2 focus:ring-blue-100"
             />
           </div>
 
           <button
             type="submit"
             disabled={loading}
-            className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-sm transition hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-60"
+            className="rounded-xl bg-gray-900 px-5 py-2.5 text-sm font-semibold text-white transition hover:bg-gray-800 disabled:opacity-50"
           >
-            <BarChart3 size={17} />
             Apply Filters
           </button>
 
           <button
             type="button"
-            onClick={handleClearFilters}
-            disabled={loading && !hasActiveFilters}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-5 py-2.5 text-sm font-semibold text-slate-600 transition hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-60"
+            onClick={handleResetFilters}
+            disabled={loading}
+            className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-700 transition hover:bg-gray-50 disabled:opacity-50"
           >
-            <X size={17} />
-            Clear
+            Reset
           </button>
-        </form>
+        </div>
+      </form>
 
-        {hasActiveFilters && (
-          <div className="mt-4 flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="font-medium">Applied range:</span>
-
-            <span className="rounded-lg bg-slate-100 px-2.5 py-1.5">
-              {appliedFilters.from || "Beginning"}
-            </span>
-
-            <span>to</span>
-
-            <span className="rounded-lg bg-slate-100 px-2.5 py-1.5">
-              {appliedFilters.to || "Today"}
-            </span>
-          </div>
-        )}
-      </section>
-
-      {/* Error Message */}
       {error && (
         <div
           role="alert"
           className="flex items-start gap-3 rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-700"
         >
-          <AlertCircle size={20} className="mt-0.5 shrink-0" />
-
-          <div className="flex-1">
-            <p className="font-semibold">Unable to load report</p>
-            <p className="mt-1">{error}</p>
-          </div>
-
+          <AlertCircle size={19} className="mt-0.5 shrink-0" />
+          <div className="flex-1">{error}</div>
           <button
             type="button"
-            onClick={handleRefresh}
-            className="shrink-0 font-semibold underline underline-offset-2"
+            onClick={() => fetchReport(filters)}
+            className="shrink-0 font-semibold underline"
           >
             Retry
           </button>
         </div>
       )}
 
-      {/* KPI Cards */}
-      <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-        {reportCards.map((card) => {
-          const Icon = card.icon;
-          const value = report[card.key];
-
-          return (
+      {loading && !report ? (
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          {[1, 2, 3, 4].map((item) => (
             <div
-              key={card.key}
-              className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm transition duration-200 hover:-translate-y-0.5 hover:shadow-md"
-            >
-              <div className="flex items-start justify-between gap-3">
+              key={item}
+              className="h-36 animate-pulse rounded-2xl border border-gray-200 bg-gray-100"
+            />
+          ))}
+        </div>
+      ) : report ? (
+        <>
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+            {kpis.map((kpi) => {
+              const Icon = kpi.icon;
+
+              return (
                 <div
-                  className={`flex h-11 w-11 items-center justify-center rounded-xl ${card.iconStyle}`}
+                  key={kpi.label}
+                  className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm transition hover:-translate-y-0.5 hover:shadow-md"
                 >
-                  <Icon size={21} />
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <p className="text-sm font-medium text-gray-500">
+                        {kpi.label}
+                      </p>
+                      <p className="mt-3 break-words text-2xl font-bold text-gray-900">
+                        {kpi.value}
+                      </p>
+                    </div>
+
+                    <div className={`rounded-xl p-3 ${kpi.iconStyle}`}>
+                      <Icon size={21} />
+                    </div>
+                  </div>
+                  <p className="mt-3 text-xs text-gray-500">
+                    {kpi.description}
+                  </p>
+                </div>
+              );
+            })}
+          </div>
+
+          <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
+            <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm xl:col-span-2 sm:p-6">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <div>
+                  <h2 className="text-lg font-bold text-gray-900">
+                    Financial Summary
+                  </h2>
+                  <p className="mt-1 text-sm text-gray-500">
+                    Collected revenue compared with outstanding payments.
+                  </p>
+                </div>
+                <TrendingUp size={22} className="text-blue-600" />
+              </div>
+
+              <div className="mt-7 space-y-6">
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium text-gray-600">
+                      Amount Collected
+                    </span>
+                    <span className="font-bold text-gray-900">
+                      {formatCurrency(report.totalPaidAmount)}
+                    </span>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className="h-full rounded-full bg-emerald-500 transition-all"
+                      style={{
+                        width: `${collectionRate}%`,
+                      }}
+                    />
+                  </div>
                 </div>
 
-                <span className="rounded-full bg-slate-50 px-2.5 py-1 text-xs font-medium text-slate-500">
-                  Report
-                </span>
+                <div>
+                  <div className="mb-2 flex items-center justify-between gap-3 text-sm">
+                    <span className="font-medium text-gray-600">
+                      Outstanding Amount
+                    </span>
+                    <span className="font-bold text-gray-900">
+                      {formatCurrency(report.totalOutstandingAmount)}
+                    </span>
+                  </div>
+                  <div className="h-3 overflow-hidden rounded-full bg-gray-100">
+                    <div
+                      className="h-full rounded-full bg-amber-500 transition-all"
+                      style={{
+                        width: `${
+                          report.totalRevenue > 0
+                            ? Math.min(
+                                100,
+                                (report.totalOutstandingAmount /
+                                  report.totalRevenue) *
+                                  100
+                              )
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                </div>
               </div>
 
-              <p className="mt-5 text-sm font-medium text-slate-500">
-                {card.title}
-              </p>
-
-              <div className="mt-2 min-h-9">
-                {loading ? (
-                  <div className="h-8 w-32 animate-pulse rounded-lg bg-slate-100" />
-                ) : (
-                  <p className="break-words text-2xl font-bold tracking-tight text-slate-900">
-                    {card.valueType === "currency"
-                      ? formatCurrency(value)
-                      : formatNumber(value)}
+              <div className="mt-7 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                <div className="rounded-xl bg-emerald-50 p-4">
+                  <p className="text-sm text-emerald-700">
+                    Collection Rate
                   </p>
-                )}
+                  <p className="mt-1 text-2xl font-bold text-emerald-800">
+                    {collectionRate.toFixed(1)}%
+                  </p>
+                </div>
+
+                <div className="rounded-xl bg-blue-50 p-4">
+                  <p className="text-sm text-blue-700">Reporting Period</p>
+                  <p className="mt-2 break-words text-sm font-semibold text-blue-900">
+                    {getPeriodLabel(filters)}
+                  </p>
+                </div>
+              </div>
+            </section>
+
+            <section className="rounded-2xl border border-gray-200 bg-white p-5 shadow-sm sm:p-6">
+              <h2 className="text-lg font-bold text-gray-900">
+                Report Overview
+              </h2>
+              <p className="mt-1 text-sm text-gray-500">
+                Key figures for the selected period.
+              </p>
+
+              <div className="mt-5 divide-y divide-gray-100">
+                {summaryRows.map(([label, value]) => (
+                  <div
+                    key={label}
+                    className="flex items-start justify-between gap-3 py-4"
+                  >
+                    <span className="text-sm text-gray-500">{label}</span>
+                    <span className="text-right text-sm font-semibold text-gray-900">
+                      {value}
+                    </span>
+                  </div>
+                ))}
               </div>
 
-              <p className="mt-2 text-xs text-slate-400">
-                {card.description}
-              </p>
-            </div>
-          );
-        })}
-      </div>
-
-      {/* Report Summary */}
-      <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm">
-        <div className="flex flex-col gap-3 border-b border-slate-100 p-5 sm:flex-row sm:items-center sm:justify-between sm:px-6">
-          <div>
-            <h2 className="font-semibold text-slate-900">
-              Financial Summary
-            </h2>
-
-            <p className="mt-1 text-sm text-slate-500">
-              Overview of revenue collection and outstanding balances.
-            </p>
-          </div>
-
-          <div className="flex items-center gap-2 text-xs font-medium text-slate-500">
-            <CircleDollarSign size={17} />
-            Financial overview
-          </div>
-        </div>
-
-        <div className="space-y-5 p-5 sm:p-6">
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-              <span className="font-medium text-slate-600">
-                Collected
-              </span>
-
-              <span className="font-semibold text-emerald-600">
-                {loading
-                  ? "Loading..."
-                  : formatCurrency(report.totalPaidAmount)}
-              </span>
-            </div>
-
-            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-emerald-500 transition-all duration-500"
-                style={{
-                  width: `${
-                    report.totalRevenue > 0
-                      ? Math.min(
-                          (report.totalPaidAmount /
-                            report.totalRevenue) *
-                            100,
-                          100
-                        )
-                      : 0
-                  }%`,
-                }}
-              />
-            </div>
-          </div>
-
-          <div>
-            <div className="mb-2 flex items-center justify-between gap-3 text-sm">
-              <span className="font-medium text-slate-600">
-                Outstanding
-              </span>
-
-              <span className="font-semibold text-amber-600">
-                {loading
-                  ? "Loading..."
-                  : formatCurrency(
-                      report.totalOutstandingAmount
-                    )}
-              </span>
-            </div>
-
-            <div className="h-3 overflow-hidden rounded-full bg-slate-100">
-              <div
-                className="h-full rounded-full bg-amber-400 transition-all duration-500"
-                style={{
-                  width: `${
-                    report.totalRevenue > 0
-                      ? Math.min(
-                          (report.totalOutstandingAmount /
-                            report.totalRevenue) *
-                            100,
-                          100
-                        )
-                      : 0
-                  }%`,
-                }}
-              />
-            </div>
-          </div>
-
-          <div className="flex flex-col gap-1 rounded-xl bg-slate-50 p-4 sm:flex-row sm:items-center sm:justify-between">
-            <span className="text-sm text-slate-600">
-              Collection rate
-            </span>
-
-            <span className="text-lg font-bold text-slate-900">
-              {loading
-                ? "Loading..."
-                : `${
-                    report.totalRevenue > 0
-                      ? (
-                          (report.totalPaidAmount /
-                            report.totalRevenue) *
-                          100
-                        ).toFixed(1)
-                      : "0.0"
-                  }%`}
-            </span>
-          </div>
-        </div>
-      </section>
-
-      {/* Empty State */}
-      {!loading &&
-        !error &&
-        report.salesCount === 0 && (
-          <div className="rounded-2xl border border-dashed border-slate-300 bg-white px-6 py-10 text-center">
-            <div className="mx-auto flex h-12 w-12 items-center justify-center rounded-xl bg-slate-100 text-slate-500">
-              <BarChart3 size={24} />
-            </div>
-
-            <h3 className="mt-4 font-semibold text-slate-900">
-              No sales data found
-            </h3>
-
-            <p className="mx-auto mt-2 max-w-md text-sm text-slate-500">
-              There are no sales transactions for the selected
-              period. Try another date range or clear your filters.
-            </p>
-
-            {hasActiveFilters && (
               <button
                 type="button"
-                onClick={handleClearFilters}
-                className="mt-4 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white transition hover:bg-blue-700"
+                onClick={exportPDF}
+                disabled={!isReady}
+                className="mt-4 inline-flex w-full items-center justify-center gap-2 rounded-xl border border-blue-200 px-4 py-3 text-sm font-semibold text-blue-700 transition hover:bg-blue-50 disabled:opacity-50"
               >
-                Clear Filters
+                <FileDown size={17} />
+                Download Financial Report
               </button>
-            )}
+            </section>
           </div>
-        )}
+        </>
+      ) : (
+        !loading && (
+          <div className="rounded-2xl border border-dashed border-gray-300 bg-white px-6 py-14 text-center">
+            <div className="mx-auto flex h-14 w-14 items-center justify-center rounded-2xl bg-gray-100 text-gray-500">
+              <BarChart3 size={27} />
+            </div>
+            <h2 className="mt-4 text-lg font-bold text-gray-900">
+              No report available
+            </h2>
+            <p className="mx-auto mt-2 max-w-md text-sm text-gray-500">
+              We couldn't display the report. Check the connection and try again.
+            </p>
+            <button
+              type="button"
+              onClick={() => fetchReport(filters)}
+              className="mt-5 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
+            >
+              Try Again
+            </button>
+          </div>
+        )
+      )}
     </div>
   );
 }
-
-export default Reports;

@@ -10,6 +10,7 @@ import {
   UserRoundCog,
   CreditCard,
   BarChart4,
+  Truck,
   Settings,
   HelpCircle,
   ChevronLeft,
@@ -58,6 +59,11 @@ const mainNavigation = [
     icon: ShieldCheck,
     path: "/users",
   },
+  {
+  label: "Delivery Orders",
+  icon: Truck,
+  path: "/delivery-orders",
+},
   {
     label: "Payments",
   icon: CreditCard,

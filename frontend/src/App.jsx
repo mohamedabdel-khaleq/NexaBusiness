@@ -15,9 +15,11 @@ import Categories from "./pages/Categories";
 import Inventory from "./pages/Inventory";
 import Customers from "./pages/Customers";
 import Employees from "./pages/Employees";
+import DeliveryOrders from "./pages/DeliveryOrders";
 import Payments from "./pages/Payments";
 import Reports from "./pages/Reports";
 import UsersPage from "./pages/Users";
+import Settings from "./pages/Settings";
 import DashboardLayout from "./layouts/DashboardLayout";
 
 function App() {
@@ -87,9 +89,14 @@ function App() {
             element={<Payments />}
           />
 
-          <Route path="/reports" element={<Reports />} />
+          <Route
+  path="/delivery-orders"
+  element={<DeliveryOrders />}
+/>
 
+          <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={<UsersPage />} />
+          <Route path="/settings" element={<Settings />} />
 
         </Route>
       </Routes>
