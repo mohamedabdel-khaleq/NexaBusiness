@@ -1,6 +1,6 @@
 const express = require("express");
 const cors = require("cors");
-
+const { swaggerUi, swaggerDocument } = require("./swagger");
 const healthRoutes = require("./routes/health.routes");
 const authRoutes = require("./routes/auth.routes");
 const categoryRoutes = require("./routes/category.routes");
@@ -26,6 +26,7 @@ const app = express();
 
 app.use(cors());
 app.use(express.json());
+app.use("/docs", swaggerUi.serve, swaggerUi.setup(swaggerDocument));
 app.use("/api/health", healthRoutes);
 app.use("/api/auth", authRoutes);
 app.use("/api/categories", categoryRoutes);

@@ -236,7 +236,6 @@ const getAllPayments = async (req, res) => {
 };
 
 //GET PAYMENT BY ID
-
 const getPaymentById = async (req, res) => {
   const { id } = req.params;
 

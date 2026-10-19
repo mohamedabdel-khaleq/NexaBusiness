@@ -194,7 +194,6 @@ const createSale = async (req, res) => {
 };
 
 //GET ALL SALES
-
 const getAllSales = async (req, res) => {
   try {
     const {
