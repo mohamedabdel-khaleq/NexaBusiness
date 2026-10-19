@@ -2,7 +2,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   Activity,
-  CalendarClock,
+  AlertCircle,
   CheckCircle2,
   ChevronDown,
   Clock3,
@@ -15,7 +15,6 @@ import {
   Truck,
   UserRound,
   X,
-  AlertCircle,
 } from "lucide-react";
 
 import API from "../services/api";
@@ -58,9 +57,13 @@ const EMPTY_FORM = {
   notes: "",
 };
 
+const inputClass =
+  "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:disabled:bg-slate-800";
+
 function getErrorMessage(error) {
   return (
     error?.response?.data?.message ||
+    error?.response?.data?.error ||
     error?.message ||
     "Something went wrong. Please try again."
   );
@@ -81,9 +84,9 @@ function formatDate(value) {
 
   const date = new Date(value);
 
-  if (Number.isNaN(date.getTime())) return "Not specified";
-
-  return date.toLocaleString();
+  return Number.isNaN(date.getTime())
+    ? "Not specified"
+    : date.toLocaleString();
 }
 
 function getOrderNumber(order) {
@@ -144,8 +147,48 @@ function Field({ label, children, className = "" }) {
   );
 }
 
-const inputClass =
-  "w-full rounded-xl border border-slate-200 bg-white px-3.5 py-2.5 text-sm text-slate-800 outline-none transition placeholder:text-slate-400 focus:border-blue-500 focus:ring-4 focus:ring-blue-500/10 disabled:cursor-not-allowed disabled:bg-slate-100 dark:border-slate-700 dark:bg-slate-950 dark:text-white dark:disabled:bg-slate-800";
+function Modal({ children, onClose, wide = false }) {
+  return (
+    <div
+      className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) onClose();
+      }}
+    >
+      <div
+        className={`my-8 w-full ${
+          wide ? "max-w-2xl" : "max-w-lg"
+        } overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900`}
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function ModalHeader({ title, subtitle, onClose }) {
+  return (
+    <div className="flex items-center justify-between gap-4 border-b border-slate-100 px-5 py-4 dark:border-slate-800 sm:px-6">
+      <div>
+        <h2 className="text-lg font-bold text-slate-900 dark:text-white">
+          {title}
+        </h2>
+        {subtitle && (
+          <p className="mt-1 text-xs text-slate-500">{subtitle}</p>
+        )}
+      </div>
+
+      <button
+        type="button"
+        onClick={onClose}
+        aria-label="Close dialog"
+        className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
+      >
+        <X size={19} />
+      </button>
+    </div>
+  );
+}
 
 function DeliveryOrders() {
   const [orders, setOrders] = useState([]);
@@ -154,6 +197,8 @@ function DeliveryOrders() {
 
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [busyOrderId, setBusyOrderId] = useState(null);
+
   const [error, setError] = useState("");
   const [success, setSuccess] = useState("");
 
@@ -185,26 +230,30 @@ function DeliveryOrders() {
       }
 
       const ordersData = ordersResult.value?.data?.deliveryOrders;
-      setOrders(Array.isArray(ordersData) ? ordersData : []);
+      const safeOrders = Array.isArray(ordersData) ? ordersData : [];
+
+      setOrders(safeOrders);
 
       if (driversResult.status === "fulfilled") {
-        const driverData = driversResult.value?.data?.drivers;
-        setDrivers(Array.isArray(driverData) ? driverData : []);
+        const data = driversResult.value?.data?.drivers;
+        setDrivers(Array.isArray(data) ? data : []);
+      } else {
+        setDrivers([]);
       }
 
       if (salesResult.status === "fulfilled") {
-        const salesData = salesResult.value?.data?.sales;
-        const existingDeliverySaleIds = new Set(
-          (Array.isArray(ordersData) ? ordersData : []).map(
-            (order) => Number(order.saleId)
-          )
+        const data = salesResult.value?.data?.sales;
+        const safeSales = Array.isArray(data) ? data : [];
+
+        const existingSaleIds = new Set(
+          safeOrders.map((order) => Number(order.saleId))
         );
 
         setSales(
-          (Array.isArray(salesData) ? salesData : []).filter(
+          safeSales.filter(
             (sale) =>
               sale.status === "COMPLETED" &&
-              !existingDeliverySaleIds.has(Number(sale.id))
+              !existingSaleIds.has(Number(sale.id))
           )
         );
       } else {
@@ -221,19 +270,25 @@ function DeliveryOrders() {
     loadData();
   }, [loadData]);
 
-  const stats = useMemo(() => {
-    return {
+  const activeDrivers = useMemo(
+    () => drivers.filter((driver) => driver.isActive),
+    [drivers]
+  );
+
+  const stats = useMemo(
+    () => ({
       total: orders.length,
       pending: orders.filter((order) => order.status === "PENDING").length,
       inProgress: orders.filter((order) =>
         ["ASSIGNED", "PICKED_UP", "IN_TRANSIT"].includes(order.status)
       ).length,
       delivered: orders.filter((order) => order.status === "DELIVERED").length,
-    };
-  }, [orders]);
+    }),
+    [orders]
+  );
 
   const filteredOrders = useMemo(() => {
-    const normalizedSearch = search.trim().toLowerCase();
+    const query = search.trim().toLowerCase();
 
     return orders.filter((order) => {
       const matchesStatus =
@@ -253,10 +308,7 @@ function DeliveryOrders() {
         .join(" ")
         .toLowerCase();
 
-      return (
-        matchesStatus &&
-        (!normalizedSearch || searchableText.includes(normalizedSearch))
-      );
+      return matchesStatus && (!query || searchableText.includes(query));
     });
   }, [orders, search, statusFilter]);
 
@@ -269,6 +321,75 @@ function DeliveryOrders() {
     setSuccess("");
     setForm(EMPTY_FORM);
     setCreateOpen(true);
+  }
+
+  // Assign a driver to an existing delivery.
+  async function handleAssignDriver(order, driverId) {
+    if (!driverId || saving) return;
+
+    setError("");
+    setSuccess("");
+    setBusyOrderId(order.id);
+    setSaving(true);
+
+    try {
+      // The backend must support updating driverId on this endpoint.
+      await API.put(`/delivery-orders/${order.id}`, {
+        driverId: Number(driverId),
+      });
+
+      setSuccess(
+        `Driver assigned to ${getOrderNumber(order)} successfully.`
+      );
+
+      await loadData();
+
+      if (detailsOrder?.id === order.id) {
+        const response = await API.get(`/delivery-orders/${order.id}`);
+        setDetailsOrder(response.data?.deliveryOrder || order);
+      }
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setSaving(false);
+      setBusyOrderId(null);
+    }
+  }
+
+  async function handleStatusChange(order, nextStatus) {
+    if (!nextStatus || nextStatus === order.status || saving) return;
+
+    if (nextStatus === "ASSIGNED" && !order.driver?.id) {
+      setError(
+        "Please assign an active driver to this delivery before changing its status to ASSIGNED."
+      );
+      return;
+    }
+
+    setError("");
+    setSuccess("");
+    setBusyOrderId(order.id);
+    setSaving(true);
+
+    try {
+      await API.put(`/delivery-orders/${order.id}`, {
+        status: nextStatus,
+      });
+
+      setSuccess(`${getOrderNumber(order)} status updated successfully.`);
+
+      await loadData();
+
+      if (detailsOrder?.id === order.id) {
+        const response = await API.get(`/delivery-orders/${order.id}`);
+        setDetailsOrder(response.data?.deliveryOrder || order);
+      }
+    } catch (requestError) {
+      setError(getErrorMessage(requestError));
+    } finally {
+      setSaving(false);
+      setBusyOrderId(null);
+    }
   }
 
   async function handleCreateOrder(event) {
@@ -307,9 +428,14 @@ function DeliveryOrders() {
     }
 
     if (form.estimatedDeliveryTime) {
-      payload.estimatedDeliveryTime = new Date(
-        form.estimatedDeliveryTime
-      ).toISOString();
+      const estimatedDate = new Date(form.estimatedDeliveryTime);
+
+      if (Number.isNaN(estimatedDate.getTime())) {
+        setError("Please enter a valid estimated delivery time.");
+        return;
+      }
+
+      payload.estimatedDeliveryTime = estimatedDate.toISOString();
     }
 
     if (
@@ -328,10 +454,7 @@ function DeliveryOrders() {
       return;
     }
 
-    if (
-      !Number.isFinite(payload.deliveryFee) ||
-      payload.deliveryFee < 0
-    ) {
+    if (!Number.isFinite(payload.deliveryFee) || payload.deliveryFee < 0) {
       setError("Delivery fee must be zero or greater.");
       return;
     }
@@ -340,8 +463,10 @@ function DeliveryOrders() {
 
     try {
       await API.post("/delivery-orders", payload);
+
       setCreateOpen(false);
       setSuccess("Delivery order created successfully.");
+
       await loadData();
     } catch (requestError) {
       setError(getErrorMessage(requestError));
@@ -350,24 +475,13 @@ function DeliveryOrders() {
     }
   }
 
-  async function handleStatusChange(order, nextStatus) {
-    if (!nextStatus || nextStatus === order.status) return;
-
+  async function openDetails(order) {
     setError("");
-    setSuccess("");
+    setDetailsOrder(order);
 
     try {
-      await API.put(`/delivery-orders/${order.id}`, {
-        status: nextStatus,
-      });
-
-      setSuccess(`${getOrderNumber(order)} status updated successfully.`);
-      await loadData();
-
-      if (detailsOrder?.id === order.id) {
-        const updated = await API.get(`/delivery-orders/${order.id}`);
-        setDetailsOrder(updated.data?.deliveryOrder || order);
-      }
+      const response = await API.get(`/delivery-orders/${order.id}`);
+      setDetailsOrder(response.data?.deliveryOrder || order);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     }
@@ -382,23 +496,12 @@ function DeliveryOrders() {
       const response = await API.get(
         `/delivery-orders/${order.id}/tracking`
       );
+
       setTracking(response.data?.tracking || null);
     } catch (requestError) {
       setError(getErrorMessage(requestError));
     } finally {
       setTrackingLoading(false);
-    }
-  }
-
-  async function openDetails(order) {
-    setError("");
-    setDetailsOrder(order);
-
-    try {
-      const response = await API.get(`/delivery-orders/${order.id}`);
-      setDetailsOrder(response.data?.deliveryOrder || order);
-    } catch (requestError) {
-      setError(getErrorMessage(requestError));
     }
   }
 
@@ -429,7 +532,7 @@ function DeliveryOrders() {
           <button
             type="button"
             onClick={loadData}
-            disabled={loading}
+            disabled={loading || saving}
             className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-4 py-2.5 text-sm font-semibold text-slate-700 transition hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800"
           >
             <RefreshCw size={16} className={loading ? "animate-spin" : ""} />
@@ -455,7 +558,11 @@ function DeliveryOrders() {
         >
           <AlertCircle size={18} className="mt-0.5 shrink-0" />
           <div className="flex-1">{error}</div>
-          <button type="button" onClick={() => setError("")} aria-label="Dismiss error">
+          <button
+            type="button"
+            onClick={() => setError("")}
+            aria-label="Dismiss error"
+          >
             <X size={17} />
           </button>
         </div>
@@ -468,13 +575,17 @@ function DeliveryOrders() {
         >
           <CheckCircle2 size={18} className="shrink-0" />
           <span className="flex-1">{success}</span>
-          <button type="button" onClick={() => setSuccess("")} aria-label="Dismiss success">
+          <button
+            type="button"
+            onClick={() => setSuccess("")}
+            aria-label="Dismiss success"
+          >
             <X size={17} />
           </button>
         </div>
       )}
 
-      {/* SUMMARY CARDS */}
+      {/* SUMMARY */}
       <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
         <StatCard
           title="Total deliveries"
@@ -502,7 +613,7 @@ function DeliveryOrders() {
         />
       </div>
 
-      {/* TABLE PANEL */}
+      {/* DELIVERIES TABLE */}
       <section className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm dark:border-slate-800 dark:bg-slate-900">
         <div className="flex flex-col gap-4 border-b border-slate-100 p-4 dark:border-slate-800 sm:p-5 lg:flex-row lg:items-center lg:justify-between">
           <div>
@@ -583,7 +694,7 @@ function DeliveryOrders() {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full min-w-[850px] text-left">
+            <table className="w-full min-w-[1000px] text-left">
               <thead className="bg-slate-50 text-[11px] uppercase tracking-wider text-slate-500 dark:bg-slate-950/60 dark:text-slate-400">
                 <tr>
                   <th className="px-5 py-4 font-semibold">Delivery</th>
@@ -591,7 +702,9 @@ function DeliveryOrders() {
                   <th className="px-5 py-4 font-semibold">Driver</th>
                   <th className="px-5 py-4 font-semibold">Status</th>
                   <th className="px-5 py-4 font-semibold">Fee</th>
-                  <th className="px-5 py-4 text-right font-semibold">Actions</th>
+                  <th className="px-5 py-4 text-right font-semibold">
+                    Actions
+                  </th>
                 </tr>
               </thead>
 
@@ -615,7 +728,10 @@ function DeliveryOrders() {
 
                     <td className="px-5 py-4">
                       <div className="flex items-start gap-2">
-                        <UserRound size={16} className="mt-0.5 shrink-0 text-slate-400" />
+                        <UserRound
+                          size={16}
+                          className="mt-0.5 shrink-0 text-slate-400"
+                        />
                         <div>
                           <p className="text-sm font-semibold text-slate-800 dark:text-slate-200">
                             {getSaleCustomer(order)}
@@ -627,20 +743,54 @@ function DeliveryOrders() {
                       </div>
                     </td>
 
+                    {/* DRIVER ASSIGNMENT */}
                     <td className="px-5 py-4">
                       {order.driver ? (
-                        <>
+                        <div>
                           <p className="text-sm font-medium text-slate-800 dark:text-slate-200">
                             {order.driver.name}
                           </p>
                           <p className="mt-1 text-xs text-slate-500">
                             {order.driver.phone || "No phone"}
                           </p>
-                        </>
+                        </div>
                       ) : (
-                        <span className="text-xs text-slate-400">
-                          Not assigned
-                        </span>
+                        <div className="space-y-2">
+                          <span className="text-xs text-slate-400">
+                            Not assigned
+                          </span>
+
+                          {order.status === "PENDING" && (
+                            <select
+                              value=""
+                              disabled={saving || activeDrivers.length === 0}
+                              onChange={(event) =>
+                                handleAssignDriver(order, event.target.value)
+                              }
+                              className="block w-40 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs text-slate-700 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                              aria-label={`Assign driver to ${getOrderNumber(order)}`}
+                            >
+                              <option value="">
+                                {activeDrivers.length
+                                  ? "Select driver"
+                                  : "No active drivers"}
+                              </option>
+
+                              {activeDrivers.map((driver) => (
+                                <option key={driver.id} value={driver.id}>
+                                  {driver.name}
+                                </option>
+                              ))}
+                            </select>
+                          )}
+
+                          {busyOrderId === order.id && (
+                            <p className="flex items-center gap-1 text-xs text-blue-600">
+                              <RefreshCw size={12} className="animate-spin" />
+                              Saving...
+                            </p>
+                          )}
+                        </div>
                       )}
                     </td>
 
@@ -678,14 +828,21 @@ function DeliveryOrders() {
                           <select
                             aria-label={`Update status for ${getOrderNumber(order)}`}
                             value=""
+                            disabled={saving}
                             onChange={(event) =>
                               handleStatusChange(order, event.target.value)
                             }
-                            className="max-w-36 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700 outline-none focus:border-blue-500 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
+                            className="max-w-36 rounded-lg border border-slate-200 bg-white px-2 py-2 text-xs font-medium text-slate-700 outline-none focus:border-blue-500 disabled:opacity-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-200"
                           >
                             <option value="">Update status</option>
                             {NEXT_STATUSES[order.status].map((status) => (
-                              <option key={status} value={status}>
+                              <option
+                                key={status}
+                                value={status}
+                                disabled={
+                                  status === "ASSIGNED" && !order.driver?.id
+                                }
+                              >
                                 {status.replaceAll("_", " ")}
                               </option>
                             ))}
@@ -703,521 +860,494 @@ function DeliveryOrders() {
 
       {/* CREATE DELIVERY MODAL */}
       {createOpen && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !saving) {
-              setCreateOpen(false);
-            }
+        <Modal
+          wide
+          onClose={() => {
+            if (!saving) setCreateOpen(false);
           }}
         >
-          <div className="my-8 w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800 sm:px-6">
-              <div>
-                <h2 className="text-lg font-bold text-slate-900 dark:text-white">
-                  Create delivery order
-                </h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  Select a completed sale and enter delivery details.
-                </p>
-              </div>
+          <ModalHeader
+            title="Create delivery order"
+            subtitle="Select a completed sale and enter delivery details."
+            onClose={() => {
+              if (!saving) setCreateOpen(false);
+            }}
+          />
 
+          <form onSubmit={handleCreateOrder} className="space-y-5 p-5 sm:p-6">
+            {availableSales.length === 0 && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
+                No eligible sales are available. A sale must be COMPLETED and
+                must not already have a delivery order.
+              </div>
+            )}
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <Field label="Completed sale *">
+                <select
+                  required
+                  value={form.saleId}
+                  onChange={(event) => {
+                    const selectedSale = availableSales.find(
+                      (sale) => String(sale.id) === event.target.value
+                    );
+
+                    updateForm("saleId", event.target.value);
+
+                    if (
+                      selectedSale?.customer?.address &&
+                      !form.address.trim()
+                    ) {
+                      updateForm("address", selectedSale.customer.address);
+                    }
+                  }}
+                  disabled={saving || availableSales.length === 0}
+                  className={inputClass}
+                >
+                  <option value="">Select a sale</option>
+                  {availableSales.map((sale) => (
+                    <option key={sale.id} value={sale.id}>
+                      Sale #{sale.id} — {sale.customer?.name || "Unknown"} —{" "}
+                      {formatMoney(sale.totalAmount)}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Delivery driver">
+                <select
+                  value={form.driverId}
+                  onChange={(event) =>
+                    updateForm("driverId", event.target.value)
+                  }
+                  disabled={saving}
+                  className={inputClass}
+                >
+                  <option value="">Assign later</option>
+                  {activeDrivers.map((driver) => (
+                    <option key={driver.id} value={driver.id}>
+                      {driver.name} — {driver.phone || "No phone"}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+
+              <Field label="Delivery address *" className="sm:col-span-2">
+                <input
+                  required
+                  minLength={5}
+                  value={form.address}
+                  onChange={(event) => updateForm("address", event.target.value)}
+                  placeholder="Enter the complete delivery address"
+                  className={inputClass}
+                  disabled={saving}
+                />
+              </Field>
+
+              <Field label="Delivery fee">
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={form.deliveryFee}
+                  onChange={(event) =>
+                    updateForm("deliveryFee", event.target.value)
+                  }
+                  className={inputClass}
+                  disabled={saving}
+                />
+              </Field>
+
+              <Field label="Estimated delivery">
+                <input
+                  type="datetime-local"
+                  value={form.estimatedDeliveryTime}
+                  onChange={(event) =>
+                    updateForm("estimatedDeliveryTime", event.target.value)
+                  }
+                  className={inputClass}
+                  disabled={saving}
+                />
+              </Field>
+
+              <Field label="Latitude (optional)">
+                <input
+                  type="number"
+                  min="-90"
+                  max="90"
+                  step="any"
+                  value={form.latitude}
+                  onChange={(event) => updateForm("latitude", event.target.value)}
+                  placeholder="e.g. 31.0409"
+                  className={inputClass}
+                  disabled={saving}
+                />
+              </Field>
+
+              <Field label="Longitude (optional)">
+                <input
+                  type="number"
+                  min="-180"
+                  max="180"
+                  step="any"
+                  value={form.longitude}
+                  onChange={(event) =>
+                    updateForm("longitude", event.target.value)
+                  }
+                  placeholder="e.g. 31.3785"
+                  className={inputClass}
+                  disabled={saving}
+                />
+              </Field>
+
+              <Field label="Notes (optional)" className="sm:col-span-2">
+                <textarea
+                  rows={3}
+                  value={form.notes}
+                  onChange={(event) => updateForm("notes", event.target.value)}
+                  placeholder="Delivery instructions or notes..."
+                  className={inputClass}
+                  disabled={saving}
+                />
+              </Field>
+            </div>
+
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 dark:border-slate-800 sm:flex-row sm:justify-end">
               <button
                 type="button"
                 onClick={() => setCreateOpen(false)}
                 disabled={saving}
-                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
-                aria-label="Close dialog"
+                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
               >
-                <X size={19} />
+                Cancel
+              </button>
+
+              <button
+                type="submit"
+                disabled={saving || availableSales.length === 0}
+                className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+              >
+                {saving && <RefreshCw size={16} className="animate-spin" />}
+                {saving ? "Creating..." : "Create delivery"}
               </button>
             </div>
-
-            <form onSubmit={handleCreateOrder} className="space-y-5 p-5 sm:p-6">
-              {availableSales.length === 0 && (
-                <div className="rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-300">
-                  No eligible sales are available. A sale must be COMPLETED and
-                  must not already have a delivery order.
-                </div>
-              )}
-
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <Field label="Completed sale *">
-                  <select
-                    required
-                    value={form.saleId}
-                    onChange={(event) => {
-                      const selectedSale = availableSales.find(
-                        (sale) => String(sale.id) === event.target.value
-                      );
-
-                      updateForm("saleId", event.target.value);
-
-                      if (
-                        selectedSale?.customer?.address &&
-                        !form.address.trim()
-                      ) {
-                        updateForm(
-                          "address",
-                          selectedSale.customer.address
-                        );
-                      }
-                    }}
-                    disabled={saving || availableSales.length === 0}
-                    className={inputClass}
-                  >
-                    <option value="">Select a sale</option>
-                    {availableSales.map((sale) => (
-                      <option key={sale.id} value={sale.id}>
-                        Sale #{sale.id} —{" "}
-                        {sale.customer?.name || "Unknown customer"} —{" "}
-                        {formatMoney(sale.totalAmount)}
-                      </option>
-                    ))}
-                  </select>
-                </Field>
-
-                <Field label="Delivery driver">
-                  <select
-                    value={form.driverId}
-                    onChange={(event) =>
-                      updateForm("driverId", event.target.value)
-                    }
-                    disabled={saving}
-                    className={inputClass}
-                  >
-                    <option value="">Assign later</option>
-                    {drivers
-                      .filter((driver) => driver.isActive)
-                      .map((driver) => (
-                        <option key={driver.id} value={driver.id}>
-                          {driver.name} — {driver.phone}
-                        </option>
-                      ))}
-                  </select>
-                </Field>
-
-                <Field label="Delivery address *" className="sm:col-span-2">
-                  <input
-                    required
-                    minLength={5}
-                    value={form.address}
-                    onChange={(event) =>
-                      updateForm("address", event.target.value)
-                    }
-                    placeholder="Enter the complete delivery address"
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </Field>
-
-                <Field label="Delivery fee">
-                  <input
-                    type="number"
-                    min="0"
-                    step="0.01"
-                    value={form.deliveryFee}
-                    onChange={(event) =>
-                      updateForm("deliveryFee", event.target.value)
-                    }
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </Field>
-
-                <Field label="Estimated delivery">
-                  <input
-                    type="datetime-local"
-                    value={form.estimatedDeliveryTime}
-                    onChange={(event) =>
-                      updateForm("estimatedDeliveryTime", event.target.value)
-                    }
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </Field>
-
-                <Field label="Latitude (optional)">
-                  <input
-                    type="number"
-                    min="-90"
-                    max="90"
-                    step="any"
-                    value={form.latitude}
-                    onChange={(event) =>
-                      updateForm("latitude", event.target.value)
-                    }
-                    placeholder="e.g. 31.0409"
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </Field>
-
-                <Field label="Longitude (optional)">
-                  <input
-                    type="number"
-                    min="-180"
-                    max="180"
-                    step="any"
-                    value={form.longitude}
-                    onChange={(event) =>
-                      updateForm("longitude", event.target.value)
-                    }
-                    placeholder="e.g. 31.3785"
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </Field>
-
-                <Field label="Notes (optional)" className="sm:col-span-2">
-                  <textarea
-                    rows={3}
-                    value={form.notes}
-                    onChange={(event) =>
-                      updateForm("notes", event.target.value)
-                    }
-                    placeholder="Delivery instructions or notes..."
-                    className={inputClass}
-                    disabled={saving}
-                  />
-                </Field>
-              </div>
-
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 dark:border-slate-800 sm:flex-row sm:justify-end">
-                <button
-                  type="button"
-                  onClick={() => setCreateOpen(false)}
-                  disabled={saving}
-                  className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  Cancel
-                </button>
-
-                <button
-                  type="submit"
-                  disabled={saving || availableSales.length === 0}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  {saving && <RefreshCw size={16} className="animate-spin" />}
-                  {saving ? "Creating..." : "Create delivery"}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
+          </form>
+        </Modal>
       )}
 
       {/* DETAILS MODAL */}
       {detailsOrder && (
-        <div
-          className="fixed inset-0 z-[100] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget) {
-              setDetailsOrder(null);
-            }
-          }}
-        >
-          <div className="my-8 w-full max-w-2xl overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800 sm:px-6">
-              <div>
-                <p className="text-xs font-medium text-slate-500">
-                  Delivery details
+        <Modal onClose={() => setDetailsOrder(null)} wide>
+          <ModalHeader
+            title={getOrderNumber(detailsOrder)}
+            subtitle="Delivery details"
+            onClose={() => setDetailsOrder(null)}
+          />
+
+          <div className="space-y-5 p-5 sm:p-6">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <StatusBadge status={detailsOrder.status} />
+              <span className="text-sm text-slate-500">
+                Created {formatDate(detailsOrder.createdAt)}
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+              <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950">
+                <p className="text-xs text-slate-500">Customer</p>
+                <p className="mt-1 font-semibold text-slate-900 dark:text-white">
+                  {getSaleCustomer(detailsOrder)}
                 </p>
-                <h2 className="mt-1 text-lg font-bold text-slate-900 dark:text-white">
-                  {getOrderNumber(detailsOrder)}
-                </h2>
+                <p className="mt-1 text-sm text-slate-500">
+                  {detailsOrder.sale?.customer?.phone || "No phone"}
+                </p>
               </div>
+
+              <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950">
+                <p className="text-xs text-slate-500">Delivery fee</p>
+                <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
+                  {formatMoney(detailsOrder.deliveryFee)}
+                </p>
+              </div>
+            </div>
+
+            <div>
+              <p className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
+                Delivery address
+              </p>
+              <div className="flex items-start gap-2 rounded-xl border border-slate-200 p-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
+                <MapPin size={17} className="mt-0.5 shrink-0 text-blue-500" />
+                <span>{detailsOrder.address || "No address provided"}</span>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+              <div>
+                <p className="text-xs text-slate-500">Assigned driver</p>
+                <p className="mt-1 font-medium text-slate-900 dark:text-white">
+                  {detailsOrder.driver?.name || "Not assigned"}
+                </p>
+                <p className="mt-1 text-sm text-slate-500">
+                  {detailsOrder.driver?.phone || ""}
+                </p>
+                {detailsOrder.driver?.vehicleNumber && (
+                  <p className="mt-1 text-sm text-slate-500">
+                    Vehicle: {detailsOrder.driver.vehicleNumber}
+                  </p>
+                )}
+              </div>
+
+              <div>
+                <p className="text-xs text-slate-500">Estimated delivery</p>
+                <p className="mt-1 font-medium text-slate-900 dark:text-white">
+                  {formatDate(detailsOrder.estimatedDeliveryTime)}
+                </p>
+              </div>
+            </div>
+
+            {detailsOrder.notes && (
+              <div>
+                <p className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-200">
+                  Notes
+                </p>
+                <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-950 dark:text-slate-300">
+                  {detailsOrder.notes}
+                </p>
+              </div>
+            )}
+
+            {Array.isArray(detailsOrder.sale?.items) &&
+              detailsOrder.sale.items.length > 0 && (
+                <div>
+                  <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-white">
+                    Sale items
+                  </h3>
+                  <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
+                    <table className="w-full text-left text-sm">
+                      <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-950">
+                        <tr>
+                          <th className="px-3 py-2">Product</th>
+                          <th className="px-3 py-2">Qty</th>
+                          <th className="px-3 py-2">Subtotal</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
+                        {detailsOrder.sale.items.map((item) => (
+                          <tr key={item.id}>
+                            <td className="px-3 py-2 text-slate-800 dark:text-slate-200">
+                              {item.product?.name ||
+                                `Product #${item.productId}`}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                              {item.quantity}
+                            </td>
+                            <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
+                              {formatMoney(item.subtotal)}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+
+            {/* Assign driver directly from details as well */}
+            {detailsOrder.status === "PENDING" && !detailsOrder.driver && (
+              <Field label="Assign driver">
+                <select
+                  value=""
+                  disabled={saving || activeDrivers.length === 0}
+                  onChange={async (event) => {
+                    const driverId = event.target.value;
+                    if (!driverId) return;
+
+                    await handleAssignDriver(detailsOrder, driverId);
+
+                    try {
+                      const response = await API.get(
+                        `/delivery-orders/${detailsOrder.id}`
+                      );
+                      setDetailsOrder(
+                        response.data?.deliveryOrder || detailsOrder
+                      );
+                    } catch {
+                      // The main table refresh already reports update errors.
+                    }
+                  }}
+                  className={inputClass}
+                >
+                  <option value="">
+                    {activeDrivers.length
+                      ? "Select an active driver"
+                      : "No active drivers available"}
+                  </option>
+                  {activeDrivers.map((driver) => (
+                    <option key={driver.id} value={driver.id}>
+                      {driver.name} — {driver.phone || "No phone"}
+                    </option>
+                  ))}
+                </select>
+              </Field>
+            )}
+
+            <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 dark:border-slate-800 sm:flex-row sm:justify-between">
+              <button
+                type="button"
+                onClick={() => {
+                  const order = detailsOrder;
+                  setDetailsOrder(null);
+                  openTracking(order);
+                }}
+                className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
+              >
+                <MapPin size={16} />
+                View tracking
+              </button>
 
               <button
                 type="button"
                 onClick={() => setDetailsOrder(null)}
-                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 hover:text-slate-700 dark:hover:bg-slate-800"
-                aria-label="Close details"
+                className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
               >
-                <X size={19} />
+                Close
               </button>
             </div>
-
-            <div className="space-y-5 p-5 sm:p-6">
-              <div className="flex flex-wrap items-center justify-between gap-3">
-                <StatusBadge status={detailsOrder.status} />
-                <span className="text-sm text-slate-500">
-                  Created {formatDate(detailsOrder.createdAt)}
-                </span>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950">
-                  <p className="text-xs text-slate-500">Customer</p>
-                  <p className="mt-1 font-semibold text-slate-900 dark:text-white">
-                    {getSaleCustomer(detailsOrder)}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {detailsOrder?.sale?.customer?.phone || "No phone"}
-                  </p>
-                </div>
-
-                <div className="rounded-xl bg-slate-50 p-4 dark:bg-slate-950">
-                  <p className="text-xs text-slate-500">Delivery fee</p>
-                  <p className="mt-1 text-xl font-bold text-slate-900 dark:text-white">
-                    {formatMoney(detailsOrder.deliveryFee)}
-                  </p>
-                </div>
-              </div>
-
-              <div>
-                <p className="mb-2 text-sm font-semibold text-slate-800 dark:text-slate-200">
-                  Delivery address
-                </p>
-                <div className="flex items-start gap-2 rounded-xl border border-slate-200 p-3 text-sm text-slate-600 dark:border-slate-700 dark:text-slate-300">
-                  <MapPin size={17} className="mt-0.5 shrink-0 text-blue-500" />
-                  <span>{detailsOrder.address || "No address provided"}</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <div>
-                  <p className="text-xs text-slate-500">Assigned driver</p>
-                  <p className="mt-1 font-medium text-slate-900 dark:text-white">
-                    {detailsOrder.driver?.name || "Not assigned"}
-                  </p>
-                  <p className="mt-1 text-sm text-slate-500">
-                    {detailsOrder.driver?.phone || ""}
-                  </p>
-                  {detailsOrder.driver?.vehicleNumber && (
-                    <p className="mt-1 text-sm text-slate-500">
-                      Vehicle: {detailsOrder.driver.vehicleNumber}
-                    </p>
-                  )}
-                </div>
-
-                <div>
-                  <p className="text-xs text-slate-500">Estimated delivery</p>
-                  <p className="mt-1 font-medium text-slate-900 dark:text-white">
-                    {formatDate(detailsOrder.estimatedDeliveryTime)}
-                  </p>
-                </div>
-              </div>
-
-              {detailsOrder.notes && (
-                <div>
-                  <p className="mb-1 text-sm font-semibold text-slate-800 dark:text-slate-200">
-                    Notes
-                  </p>
-                  <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-600 dark:bg-slate-950 dark:text-slate-300">
-                    {detailsOrder.notes}
-                  </p>
-                </div>
-              )}
-
-              {Array.isArray(detailsOrder.sale?.items) &&
-                detailsOrder.sale.items.length > 0 && (
-                  <div>
-                    <h3 className="mb-2 text-sm font-semibold text-slate-900 dark:text-white">
-                      Sale items
-                    </h3>
-                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-700">
-                      <table className="w-full text-left text-sm">
-                        <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-950">
-                          <tr>
-                            <th className="px-3 py-2">Product</th>
-                            <th className="px-3 py-2">Qty</th>
-                            <th className="px-3 py-2">Subtotal</th>
-                          </tr>
-                        </thead>
-                        <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
-                          {detailsOrder.sale.items.map((item) => (
-                            <tr key={item.id}>
-                              <td className="px-3 py-2 text-slate-800 dark:text-slate-200">
-                                {item.product?.name || `Product #${item.productId}`}
-                              </td>
-                              <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
-                                {item.quantity}
-                              </td>
-                              <td className="px-3 py-2 text-slate-600 dark:text-slate-300">
-                                {formatMoney(item.subtotal)}
-                              </td>
-                            </tr>
-                          ))}
-                        </tbody>
-                      </table>
-                    </div>
-                  </div>
-                )}
-
-              <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-4 dark:border-slate-800 sm:flex-row sm:justify-between">
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDetailsOrder(null);
-                    openTracking(detailsOrder);
-                  }}
-                  className="inline-flex items-center justify-center gap-2 rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 dark:border-slate-700 dark:text-slate-300 dark:hover:bg-slate-800"
-                >
-                  <MapPin size={16} />
-                  View tracking
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => setDetailsOrder(null)}
-                  className="rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  Close
-                </button>
-              </div>
-            </div>
           </div>
-        </div>
+        </Modal>
       )}
 
       {/* TRACKING MODAL */}
       {(tracking || trackingLoading) && (
-        <div
-          className="fixed inset-0 z-[110] flex items-center justify-center overflow-y-auto bg-slate-950/60 p-4 backdrop-blur-sm"
-          onMouseDown={(event) => {
-            if (event.target === event.currentTarget && !trackingLoading) {
-              setTracking(null);
-            }
+        <Modal
+          onClose={() => {
+            if (!trackingLoading) setTracking(null);
           }}
         >
-          <div className="my-8 w-full max-w-lg overflow-hidden rounded-2xl bg-white shadow-2xl dark:bg-slate-900">
-            <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+          <ModalHeader
+            title="Delivery tracking"
+            subtitle="Latest recorded delivery status and driver location."
+            onClose={() => {
+              if (!trackingLoading) setTracking(null);
+            }}
+          />
+
+          {trackingLoading ? (
+            <div className="flex min-h-48 items-center justify-center gap-3 text-sm text-slate-500">
+              <RefreshCw size={19} className="animate-spin text-blue-600" />
+              Loading tracking...
+            </div>
+          ) : tracking ? (
+            <div className="space-y-5 p-5">
+              <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4 dark:bg-slate-950">
+                <div>
+                  <p className="text-xs text-slate-500">Order status</p>
+                  <div className="mt-2">
+                    <StatusBadge status={tracking.status} />
+                  </div>
+                </div>
+                <Truck size={26} className="text-blue-600" />
+              </div>
+
               <div>
-                <h2 className="font-bold text-slate-900 dark:text-white">
-                  Delivery tracking
-                </h2>
-                <p className="mt-1 text-xs text-slate-500">
-                  Latest recorded delivery status and driver location.
+                <p className="text-xs text-slate-500">Delivery address</p>
+                <p className="mt-1 text-sm font-medium text-slate-900 dark:text-white">
+                  {tracking.address || "Not specified"}
                 </p>
               </div>
+
+              <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
+                <div className="flex items-center gap-2">
+                  <UserRound size={18} className="text-blue-600" />
+                  <h3 className="font-semibold text-slate-900 dark:text-white">
+                    Driver information
+                  </h3>
+                </div>
+
+                {tracking.driver ? (
+                  <div className="mt-3 space-y-2 text-sm">
+                    <p className="font-medium text-slate-800 dark:text-slate-200">
+                      {tracking.driver.name}
+                    </p>
+                    <p className="text-slate-500">
+                      {tracking.driver.phone || "No phone"}
+                    </p>
+                    <p className="text-slate-500">
+                      Vehicle:{" "}
+                      {[
+                        tracking.driver.vehicleType,
+                        tracking.driver.vehicleNumber,
+                      ]
+                        .filter(Boolean)
+                        .join(" · ") || "Not specified"}
+                    </p>
+
+                    <div className="mt-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-950">
+                      <p className="text-xs text-slate-500">
+                        Last recorded coordinates
+                      </p>
+
+                      {tracking.driver.latitude != null &&
+                      tracking.driver.longitude != null ? (
+                        <>
+                          <p className="mt-1 font-mono text-sm text-slate-800 dark:text-slate-200">
+                            {tracking.driver.latitude},{" "}
+                            {tracking.driver.longitude}
+                          </p>
+                          <a
+                            href={`https://www.google.com/maps?q=${tracking.driver.latitude},${tracking.driver.longitude}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="mt-2 inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700"
+                          >
+                            <MapPin size={14} />
+                            Open location in Maps
+                          </a>
+                        </>
+                      ) : (
+                        <p className="mt-1 text-sm text-slate-500">
+                          No location has been recorded yet.
+                        </p>
+                      )}
+
+                      <p className="mt-2 text-xs text-slate-400">
+                        Last update:{" "}
+                        {formatDate(tracking.driver.locationUpdatedAt)}
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <p className="mt-3 text-sm text-slate-500">
+                    No driver is assigned to this delivery.
+                  </p>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
+                  <p className="text-xs text-slate-500">Delivery fee</p>
+                  <p className="mt-1 font-bold text-slate-900 dark:text-white">
+                    {formatMoney(tracking.deliveryFee)}
+                  </p>
+                </div>
+                <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
+                  <p className="text-xs text-slate-500">Estimated arrival</p>
+                  <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
+                    {formatDate(tracking.estimatedDeliveryTime)}
+                  </p>
+                </div>
+              </div>
+
               <button
                 type="button"
                 onClick={() => setTracking(null)}
-                disabled={trackingLoading}
-                aria-label="Close tracking"
-                className="rounded-lg p-2 text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800"
+                className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
               >
-                <X size={18} />
+                Close tracking
               </button>
             </div>
-
-            {trackingLoading ? (
-              <div className="flex min-h-48 items-center justify-center gap-3 text-sm text-slate-500">
-                <RefreshCw size={19} className="animate-spin text-blue-600" />
-                Loading tracking...
-              </div>
-            ) : tracking ? (
-              <div className="space-y-5 p-5">
-                <div className="flex items-center justify-between rounded-xl bg-slate-50 p-4 dark:bg-slate-950">
-                  <div>
-                    <p className="text-xs text-slate-500">Order status</p>
-                    <div className="mt-2">
-                      <StatusBadge status={tracking.status} />
-                    </div>
-                  </div>
-                  <Truck size={26} className="text-blue-600" />
-                </div>
-
-                <div>
-                  <p className="text-xs text-slate-500">Delivery address</p>
-                  <p className="mt-1 text-sm font-medium text-slate-900 dark:text-white">
-                    {tracking.address || "Not specified"}
-                  </p>
-                </div>
-
-                <div className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
-                  <div className="flex items-center gap-2">
-                    <UserRound size={18} className="text-blue-600" />
-                    <h3 className="font-semibold text-slate-900 dark:text-white">
-                      Driver information
-                    </h3>
-                  </div>
-
-                  {tracking.driver ? (
-                    <div className="mt-3 space-y-2 text-sm">
-                      <p className="font-medium text-slate-800 dark:text-slate-200">
-                        {tracking.driver.name}
-                      </p>
-                      <p className="text-slate-500">
-                        {tracking.driver.phone || "No phone"}
-                      </p>
-                      <p className="text-slate-500">
-                        Vehicle:{" "}
-                        {[
-                          tracking.driver.vehicleType,
-                          tracking.driver.vehicleNumber,
-                        ]
-                          .filter(Boolean)
-                          .join(" · ") || "Not specified"}
-                      </p>
-
-                      <div className="mt-3 rounded-lg bg-slate-50 p-3 dark:bg-slate-950">
-                        <p className="text-xs text-slate-500">
-                          Last recorded coordinates
-                        </p>
-                        {tracking.driver.latitude != null &&
-                        tracking.driver.longitude != null ? (
-                          <>
-                            <p className="mt-1 font-mono text-sm text-slate-800 dark:text-slate-200">
-                              {tracking.driver.latitude},{" "}
-                              {tracking.driver.longitude}
-                            </p>
-                            <a
-                              href={`https://www.google.com/maps?q=${tracking.driver.latitude},${tracking.driver.longitude}`}
-                              target="_blank"
-                              rel="noreferrer"
-                              className="mt-2 inline-flex items-center gap-1 font-semibold text-blue-600 hover:text-blue-700"
-                            >
-                              <MapPin size={14} />
-                              Open location in Maps
-                            </a>
-                          </>
-                        ) : (
-                          <p className="mt-1 text-sm text-slate-500">
-                            No location has been recorded yet.
-                          </p>
-                        )}
-
-                        <p className="mt-2 text-xs text-slate-400">
-                          Last update:{" "}
-                          {formatDate(tracking.driver.locationUpdatedAt)}
-                        </p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="mt-3 text-sm text-slate-500">
-                      No driver is assigned to this delivery.
-                    </p>
-                  )}
-                </div>
-
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
-                    <p className="text-xs text-slate-500">Delivery fee</p>
-                    <p className="mt-1 font-bold text-slate-900 dark:text-white">
-                      {formatMoney(tracking.deliveryFee)}
-                    </p>
-                  </div>
-                  <div className="rounded-xl bg-slate-50 p-3 dark:bg-slate-950">
-                    <p className="text-xs text-slate-500">Estimated arrival</p>
-                    <p className="mt-1 text-sm font-semibold text-slate-900 dark:text-white">
-                      {formatDate(tracking.estimatedDeliveryTime)}
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setTracking(null)}
-                  className="w-full rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-                >
-                  Close tracking
-                </button>
-              </div>
-            ) : null}
-          </div>
-        </div>
+          ) : null}
+        </Modal>
       )}
     </div>
   );

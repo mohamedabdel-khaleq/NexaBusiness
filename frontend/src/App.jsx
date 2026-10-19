@@ -16,6 +16,7 @@ import Inventory from "./pages/Inventory";
 import Customers from "./pages/Customers";
 import Employees from "./pages/Employees";
 import DeliveryOrders from "./pages/DeliveryOrders";
+import DeliveryDrivers from "./pages/DeliveryDrivers";
 import Payments from "./pages/Payments";
 import Reports from "./pages/Reports";
 import UsersPage from "./pages/Users";
@@ -93,11 +94,10 @@ function App() {
   path="/delivery-orders"
   element={<DeliveryOrders />}
 />
-
+          <Route path="/delivery-drivers" element={<DeliveryDrivers />} />
           <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/settings" element={<Settings />} />
-
         </Route>
       </Routes>
     </BrowserRouter>
