@@ -21,6 +21,7 @@ import Payments from "./pages/Payments";
 import Reports from "./pages/Reports";
 import UsersPage from "./pages/Users";
 import Settings from "./pages/Settings";
+import HelpSupport from "./pages/HelpSupport";
 import DashboardLayout from "./layouts/DashboardLayout";
 
 function App() {
@@ -98,6 +99,7 @@ function App() {
           <Route path="/reports" element={<Reports />} />
           <Route path="/users" element={<UsersPage />} />
           <Route path="/settings" element={<Settings />} />
+          <Route path="/help" element={<HelpSupport />} />
         </Route>
       </Routes>
     </BrowserRouter>
